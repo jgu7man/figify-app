@@ -41,10 +41,7 @@ figma.ui.onmessage = async (msg: any) => {
       }
 
       const getFigmaFontName = (fontFamily: string, fontWeight: string): { family: string, style: string } => {
-        let family = fontFamily.split(',')[0].replace(/['"]/g, '').trim();
-        if (!family || family === 'inherit' || family === 'sans-serif') {
-          family = "Inter";
-        }
+        let family = resolveFontFamily(fontFamily);
         let style = "Regular";
         const weight = fontWeight.toString().toLowerCase();
         if (weight === 'bold' || weight === '700' || weight === '800' || weight === '900') {
@@ -126,6 +123,36 @@ figma.ui.onmessage = async (msg: any) => {
     }
   }
 };
+
+function resolveFontFamily(fontFamily: string): string {
+  if (!fontFamily) return "Inter";
+  
+  const fonts = fontFamily.split(',').map(f => f.replace(/['"]/g, '').trim());
+  
+  for (const font of fonts) {
+    const lower = font.toLowerCase();
+    
+    // Monospace fallbacks
+    if (lower === 'monospace' || lower === 'ui-monospace' || lower === 'menlo' || lower === 'monaco' || lower === 'consolas' || lower === 'sfmono-regular') {
+      return 'Roboto Mono';
+    }
+    // Sans-serif fallbacks
+    if (lower === 'sans-serif' || lower === 'ui-sans-serif' || lower === 'system-ui' || lower === 'blinkmacsystemfont') {
+      return 'Inter';
+    }
+    // Serif fallbacks
+    if (lower === 'serif' || lower === 'ui-serif') {
+      return 'Georgia';
+    }
+    
+    // If it's a specific named font (e.g. "Outfit", "Arial"), return it!
+    if (font && font !== 'inherit') {
+      return font;
+    }
+  }
+  
+  return "Inter";
+}
 
 /**
  * Parses Hex colors (#RRGGBB or #RRGGBBAA) to Figma compatible format (RGB values 0 to 1, and alpha)
@@ -248,10 +275,7 @@ function parseBoxShadows(shadowStr: string): any[] {
  */
 async function loadFontForNode(fontFamily: string, fontWeight: string): Promise<{ family: string, style: string }> {
   // Extract primary font name
-  let family = fontFamily.split(',')[0].replace(/['"]/g, '').trim();
-  if (!family || family === 'inherit' || family === 'sans-serif') {
-    family = "Inter";
-  }
+  let family = resolveFontFamily(fontFamily);
   
   let style = "Regular";
   const weight = fontWeight.toString().toLowerCase();
@@ -288,6 +312,7 @@ async function createFigmaNode(node: any, parent: any) {
   if (node.type === 'VECTOR') {
     try {
       const vector = figma.createNodeFromSvg(node.svgContent);
+      vector.name = node.name || 'svg';
       vector.x = node.x;
       vector.y = node.y;
       vector.resize(Math.max(0.01, node.width || 0.01), Math.max(0.01, node.height || 0.01));
@@ -431,6 +456,25 @@ async function createFigmaNode(node: any, parent: any) {
     // Recursively process children
     if (node.children && node.children.length > 0) {
       for (const child of node.children) {
+        const isAbsolute = child.styles?.layoutPositioning === 'ABSOLUTE';
+        if (!isAbsolute) {
+          // If parent has vertical Auto Layout and child has margin-top
+          if (figmaNode.layoutMode === 'VERTICAL' && child.styles?.marginTop > 0) {
+            const spacer = figma.createFrame();
+            spacer.name = 'spacer';
+            spacer.resize(1, child.styles.marginTop);
+            spacer.fills = [];
+            figmaNode.appendChild(spacer);
+          }
+          // If parent has horizontal Auto Layout and child has margin-left
+          if (figmaNode.layoutMode === 'HORIZONTAL' && child.styles?.marginLeft > 0) {
+            const spacer = figma.createFrame();
+            spacer.name = 'spacer';
+            spacer.resize(child.styles.marginLeft, 1);
+            spacer.fills = [];
+            figmaNode.appendChild(spacer);
+          }
+        }
         await createFigmaNode(child, figmaNode);
       }
     }

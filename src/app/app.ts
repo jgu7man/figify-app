@@ -606,14 +606,25 @@ export class App implements OnInit {
 
     // Check if SVG
     if (element.tagName.toLowerCase() === 'svg') {
+      let svgHtml = element.outerHTML;
+      const computedColor = style.color || 'rgb(0, 0, 0)';
+      
+      // Replace currentColor with computed color
+      svgHtml = svgHtml.replace(/currentColor/gi, computedColor);
+      
+      // If the svg doesn't have a fill or stroke attribute, inject the computed color as the default fill
+      if (!svgHtml.includes('fill=') && !svgHtml.includes('stroke=')) {
+        svgHtml = svgHtml.replace('<svg', `<svg fill="${computedColor}"`);
+      }
+
       return {
         type: 'VECTOR',
-        name: 'svg',
+        name: this.getSmartNodeName(element),
         x: x,
         y: y,
         width: rect.width,
         height: rect.height,
-        svgContent: element.outerHTML
+        svgContent: svgHtml
       };
     }
 
@@ -670,7 +681,7 @@ export class App implements OnInit {
     else if (borderLeft > 0 && !isLeftColorDifferent) activeStrokeColor = style.borderLeftColor;
     else if (style.borderColor && style.borderStyle !== 'none') activeStrokeColor = style.borderColor;
 
-    const isFlex = style.display === 'flex';
+    const isFlex = style.display === 'flex' || style.display === 'inline-flex' || style.display === 'inline-block';
     const flexDir = style.flexDirection;
     const layoutMode = isFlex 
       ? (flexDir.includes('column') ? 'VERTICAL' : 'HORIZONTAL')
@@ -704,7 +715,7 @@ export class App implements OnInit {
     const parentEl = element.parentElement;
     if (parentEl) {
       const parentStyle = win.getComputedStyle(parentEl);
-      const isParentFlex = parentStyle.display === 'flex';
+      const isParentFlex = parentStyle.display === 'flex' || parentStyle.display === 'inline-flex' || parentStyle.display === 'inline-block';
       if (isParentFlex) {
         if (style.alignSelf === 'stretch' || (parentStyle.alignItems === 'stretch' && style.alignSelf !== 'flex-start')) {
           layoutAlign = 'STRETCH';
@@ -718,7 +729,7 @@ export class App implements OnInit {
 
     const nodeData: any = {
       type: isPureText && element.textContent?.trim() && !hasVisualStyles ? 'TEXT' : 'FRAME',
-      name: element.tagName.toLowerCase(),
+      name: this.getSmartNodeName(element),
       x: x,
       y: y,
       width: rect.width,
@@ -736,6 +747,10 @@ export class App implements OnInit {
         paddingRight: parseFloat(style.paddingRight) || 0,
         paddingBottom: parseFloat(style.paddingBottom) || 0,
         paddingLeft: parseFloat(style.paddingLeft) || 0,
+        marginTop: parseFloat(style.marginTop) || 0,
+        marginRight: parseFloat(style.marginRight) || 0,
+        marginBottom: parseFloat(style.marginBottom) || 0,
+        marginLeft: parseFloat(style.marginLeft) || 0,
         itemSpacing: parseFloat(style.gap) || parseFloat(style.columnGap) || parseFloat(style.rowGap) || 0,
         primaryAxisAlignItems: style.justifyContent.includes('end') ? 'MAX' : style.justifyContent.includes('center') ? 'CENTER' : style.justifyContent.includes('between') ? 'SPACE_BETWEEN' : 'MIN',
         counterAxisAlignItems: style.alignItems.includes('end') ? 'MAX' : style.alignItems.includes('center') ? 'CENTER' : 'MIN',
@@ -1039,6 +1054,37 @@ export class App implements OnInit {
     const a = parts[4] ? Math.round(parseFloat(parts[4]) * 255).toString(16).padStart(2, '0') : '';
     
     return `#${r}${g}${b}${a}`;
+  }
+
+  private getSmartNodeName(element: HTMLElement): string {
+    const tagName = element.tagName.toLowerCase();
+    
+    // 1. If it has a specific semantic ID, use it
+    const id = element.id;
+    if (id && id.trim().length > 0) {
+      return `#${id.trim()}`;
+    }
+
+    // 2. Process class names to find a semantic one
+    const classList = Array.from(element.classList);
+    if (classList.length > 0) {
+      // Filter out utility classes (especially Tailwind CSS classes)
+      const utilityRegex = /^(flex|grid|block|inline|inline-flex|p-|px-|py-|pt-|pr-|pb-|pl-|m-|mx-|my-|mt-|mr-|mb-|ml-|gap-|space-|bg-|text-|rounded-|w-|h-|border-|shadow-|justify-|items-|self-|min-|max-|top-|right-|bottom-|left-|relative|absolute|fixed|overflow-|z-|cursor-|opacity-|transition-|duration-|ease-|select-|pointer-|focus-|hover-)/;
+      
+      const semanticClass = classList.find(cls => !utilityRegex.test(cls));
+      if (semanticClass) {
+        return `.${semanticClass}`;
+      }
+    }
+
+    // 3. Fallback to descriptive semantic tag names capitalized
+    const semanticTags = ['header', 'footer', 'nav', 'main', 'aside', 'section', 'article', 'button', 'input', 'img', 'svg', 'a'];
+    if (semanticTags.includes(tagName)) {
+      return tagName.charAt(0).toUpperCase() + tagName.slice(1);
+    }
+
+    // Generic fallback
+    return 'Frame';
   }
 
   private parseRgbaColor(colorStr: string, doc: Document): { r: number, g: number, b: number, a: number } {
