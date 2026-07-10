@@ -36,6 +36,7 @@ To enable user authentication with Figma:
 2. Click **"Register a new app"** and fill out the details:
    * **App Name:** `Figify` (or any custom name)
    * **Redirect URI:** Add `http://localhost:3000/api/figma/callback` (for local development).
+   * **Scopes:** Select/enable **`current_user:read`** (this is the only scope required by our authentication backend).
 3. Once registered, copy the **Client ID** and **Client Secret**.
 4. Save them in your local `.env` file under `FIGMA_CLIENT_ID` and `FIGMA_CLIENT_SECRET`.
 
