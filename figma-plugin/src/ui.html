@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root {
+      --bg: #09090b;
+      --card-bg: #18181b;
+      --card-border: #27272a;
+      --text: #fafafa;
+      --text-muted: #a1a1aa;
+      --primary: #10b981;
+      --primary-hover: #059669;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+    }
+    
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 16px;
+      overflow-y: auto;
+      font-size: 13px;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 360px;
+    }
+
+    h2 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    p {
+      color: var(--text-muted);
+      margin-top: 0;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    button {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 8px;
+      padding: 10px 16px;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s, transform 0.1s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary {
+      background-color: var(--primary);
+      color: #022c22;
+    }
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background-color: #27272a;
+      color: var(--text);
+      border: 1px solid #3f3f46;
+    }
+    .btn-secondary:hover {
+      background-color: #3f3f46;
+    }
+
+    .btn-danger {
+      background-color: transparent;
+      color: var(--danger);
+      padding: 4px 8px;
+    }
+    .btn-danger:hover {
+      color: var(--danger-hover);
+    }
+
+    /* Auth screen */
+    #auth-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 32px 16px;
+      flex: 1;
+    }
+
+    .logo-badge {
+      width: 48px;
+      height: 48px;
+      background-color: #27272a;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 16px;
+      border: 1px solid #3f3f46;
+    }
+
+    /* Main screen */
+    #main-screen {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .user-info {
+      font-weight: 500;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .designs-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+      max-height: 280px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+      padding-right: 4px;
+    }
+
+    /* Custom Scrollbar */
+    .designs-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .designs-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .designs-list::-webkit-scrollbar-thumb {
+      background: #27272a;
+      border-radius: 3px;
+    }
+    .designs-list::-webkit-scrollbar-thumb:hover {
+      background: #3f3f46;
+    }
+
+    .design-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: border-color 0.2s;
+    }
+
+    .design-card:hover {
+      border-color: #3f3f46;
+    }
+
+    .design-details {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .design-name {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .design-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--text-muted);
+      background-color: #121214;
+      border-radius: 10px;
+      border: 1px dashed var(--card-border);
+    }
+
+    .loading-spinner {
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-left-color: var(--primary);
+      border-radius: 50%;
+      width: 18px;
+      height: 18px;
+      animation: spin 1s linear infinite;
+      margin-right: 6px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    
+    <!-- Auth Screen -->
+    <div id="auth-screen">
+      <div class="logo-badge">⚡</div>
+      <h2>Connect to Figify</h2>
+      <p>Authenticate with your Figify web application to list and import your rendered HTML designs.</p>
+      <button class="btn-primary" style="width: 100%; margin-bottom: 12px;" onclick="startOAuth()">
+        Connect Account
+      </button>
+
+      <!-- Manual token entry for Figma Desktop -->
+      <div style="width: 100%; border-top: 1px solid var(--card-border); padding-top: 12px; margin-bottom: 12px; text-align: left;">
+        <label for="manual-token" style="color: var(--text-muted); font-size: 11px; display: block; margin-bottom: 6px;">Or paste token (for Figma Desktop):</label>
+        <div style="display: flex; gap: 6px; width: 100%;">
+          <input id="manual-token" type="password" placeholder="Token..." style="flex: 1; background: #000; border: 1px solid var(--card-border); border-radius: 6px; padding: 6px 10px; color: #fff; font-size: 11px; outline: none; box-sizing: border-box;" />
+          <button class="btn-secondary" style="padding: 6px 12px; font-size: 11px; border-radius: 6px;" onclick="applyManualToken()">
+            Apply
+          </button>
+        </div>
+      </div>
+
+      <button class="btn-secondary" style="width: 100%;" onclick="startMockAuth()">
+        Bypass with Mock Login
+      </button>
+    </div>
+
+    <!-- Main Screen -->
+    <div id="main-screen">
+      <div class="header-bar">
+        <span class="user-info">● Figify Connected</span>
+        <button class="btn-danger" onclick="disconnect()">Disconnect</button>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span style="font-weight: 600; color: var(--text-muted);">Saved Designs</span>
+        <button class="btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="fetchDesigns()">
+          Refresh
+        </button>
+      </div>
+
+      <div class="designs-list" id="designs-list">
+        <!-- Dynmically loaded designs -->
+        <div class="empty-state">Loading designs...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let apiToken = '';
+    let BACKEND_URL = 'http://localhost:4000';
+
+    // Auto-detect active local server port on startup
+    async function detectBackendPort() {
+      const ports = [3000, 4200, 4000];
+      for (const port of ports) {
+        try {
+          const url = `http://localhost:${port}`;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 600);
+          
+          const response = await fetch(`${url}/api/figma/status`, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            BACKEND_URL = url;
+            console.log("Successfully connected to backend at:", BACKEND_URL);
+            break;
+          }
+        } catch (e) {
+          // Port not active, continue probing
+        }
+      }
+      // Re-trigger designs list fetch with the correct detected port
+      if (apiToken) {
+        fetchDesigns();
+      }
+    }
+
+    detectBackendPort();
+
+    // Handle messages from Figma main thread
+    window.onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+
+      if (msg.type === 'init-auth') {
+        if (msg.token) {
+          apiToken = msg.token;
+          showMainScreen();
+        } else {
+          showAuthScreen();
+        }
+      }
+    };
+
+    // Listen for OAuth token callback from popup
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'FIGMA_TOKEN') {
+        apiToken = event.data.token;
+        parent.postMessage({ pluginMessage: { type: 'save-token', token: apiToken } }, '*');
+        showMainScreen();
+      }
+    });
+
+    function showAuthScreen() {
+      document.getElementById('auth-screen').style.display = 'flex';
+      document.getElementById('main-screen').style.display = 'none';
+    }
+
+    function showMainScreen() {
+      document.getElementById('auth-screen').style.display = 'none';
+      document.getElementById('main-screen').style.display = 'flex';
+      fetchDesigns();
+    }
+
+    function startOAuth() {
+      window.open(`${BACKEND_URL}/api/figma/auth?state=plugin`, '_blank');
+    }
+
+    function applyManualToken() {
+      const token = document.getElementById('manual-token').value.trim();
+      if (token) {
+        apiToken = token;
+        parent.postMessage({ pluginMessage: { type: 'save-token', token: apiToken } }, '*');
+        showMainScreen();
+      } else {
+        alert("Please paste a token first.");
+      }
+    }
+
+    async function startMockAuth() {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/figma/mock-login`, { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+          apiToken = 'mock_access_token';
+          parent.postMessage({ pluginMessage: { type: 'save-token', token: apiToken } }, '*');
+          showMainScreen();
+        }
+      } catch (err) {
+        console.error("Mock login failed:", err);
+        alert("Mock login failed. Make sure server is running on port 4000");
+      }
+    }
+
+    function disconnect() {
+      apiToken = '';
+      parent.postMessage({ pluginMessage: { type: 'save-token', token: '' } }, '*');
+      showAuthScreen();
+    }
+
+    async function fetchDesigns() {
+      const listEl = document.getElementById('designs-list');
+      listEl.innerHTML = '<div class="empty-state"><div style="display:inline-block;" class="loading-spinner"></div> Loading...</div>';
+
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/figma/designs`);
+        const data = await response.json();
+        
+        if (data.success && data.designs && data.designs.length > 0) {
+          listEl.innerHTML = '';
+          data.designs.forEach(design => {
+            const card = document.createElement('div');
+            card.className = 'design-card';
+            
+            const deviceLabel = design.device ? design.device.toUpperCase() : 'DESKTOP';
+            const dateStr = new Date(design.createdAt).toLocaleDateString();
+
+            card.innerHTML = `
+              <div class="design-details" style="flex: 1; min-w: 0;">
+                <span class="design-name" style="display: block; font-weight: 500; font-size: 13px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(design.name)}</span>
+                <span class="design-meta" style="font-size: 11px; color: var(--text-muted);">${deviceLabel} • ${design.width}x${design.height} • ${dateStr}</span>
+              </div>
+              <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+                <button class="btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="importDesign('${design.id}')">
+                  Import
+                </button>
+                <button class="btn-secondary" style="padding: 6px 10px; font-size: 12px; color: #ef4444; border-color: rgba(239, 68, 68, 0.2);" onclick="deleteDesign('${design.id}')">
+                  ✕
+                </button>
+              </div>
+            `;
+            listEl.appendChild(card);
+          });
+          // Save designs in window for easy retrieve
+          window.fetchedDesigns = data.designs;
+        } else {
+          listEl.innerHTML = '<div class="empty-state">No designs found. Sync a design from the web app first.</div>';
+        }
+      } catch (err) {
+        console.error("Fetch error:", err);
+        listEl.innerHTML = '<div class="empty-state" style="color:var(--danger);">Failed to load designs. Ensure backend server is running on port 4000.</div>';
+      }
+    }
+
+    function importDesign(id) {
+      const design = window.fetchedDesigns?.find(d => d.id === id);
+      if (design) {
+        parent.postMessage({ pluginMessage: { type: 'import-design', design } }, '*');
+      }
+    }
+
+    async function deleteDesign(id) {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/figma/designs/${id}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (data.success) {
+          fetchDesigns();
+        }
+      } catch (err) {
+        console.error("Failed to delete design:", err);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>

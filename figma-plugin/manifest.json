@@ -1,0 +1,19 @@
+{
+  "name": "Figify HTML to Figma",
+  "id": "1357902468112",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "src/ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": [
+      "https://www.figma.com",
+      "https://*.figma.com"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:4000",
+      "http://localhost:3000"
+    ],
+    "reasoning": "Retrieve locally stored design schemas during plugin import."
+  }
+}
