@@ -670,6 +670,52 @@ export class App implements OnInit {
     else if (borderLeft > 0 && !isLeftColorDifferent) activeStrokeColor = style.borderLeftColor;
     else if (style.borderColor && style.borderStyle !== 'none') activeStrokeColor = style.borderColor;
 
+    const isFlex = style.display === 'flex';
+    const flexDir = style.flexDirection;
+    const layoutMode = isFlex 
+      ? (flexDir.includes('column') ? 'VERTICAL' : 'HORIZONTAL')
+      : 'NONE';
+
+    const isWidthAuto = style.width === 'auto' || style.width.includes('content');
+    const isHeightAuto = style.height === 'auto' || style.height.includes('content');
+    
+    let primaryAxisSizingMode = 'FIXED';
+    let counterAxisSizingMode = 'FIXED';
+    if (layoutMode === 'HORIZONTAL') {
+      primaryAxisSizingMode = isWidthAuto ? 'AUTO' : 'FIXED';
+      counterAxisSizingMode = isHeightAuto ? 'AUTO' : 'FIXED';
+    } else if (layoutMode === 'VERTICAL') {
+      primaryAxisSizingMode = isHeightAuto ? 'AUTO' : 'FIXED';
+      counterAxisSizingMode = isWidthAuto ? 'AUTO' : 'FIXED';
+    }
+
+    let layoutPositioning = 'RELATIVE';
+    if (style.position === 'absolute' || style.position === 'fixed') {
+      layoutPositioning = 'ABSOLUTE';
+    }
+
+    let layoutGrow = 0;
+    const flexGrowVal = parseFloat(style.flexGrow) || 0;
+    if (flexGrowVal > 0) {
+      layoutGrow = 1;
+    }
+
+    let layoutAlign = 'MIN';
+    const parentEl = element.parentElement;
+    if (parentEl) {
+      const parentStyle = win.getComputedStyle(parentEl);
+      const isParentFlex = parentStyle.display === 'flex';
+      if (isParentFlex) {
+        if (style.alignSelf === 'stretch' || (parentStyle.alignItems === 'stretch' && style.alignSelf !== 'flex-start')) {
+          layoutAlign = 'STRETCH';
+        } else if (style.alignSelf === 'center' || parentStyle.alignItems === 'center') {
+          layoutAlign = 'CENTER';
+        } else if (style.alignSelf === 'flex-end' || parentStyle.alignItems === 'flex-end') {
+          layoutAlign = 'MAX';
+        }
+      }
+    }
+
     const nodeData: any = {
       type: isPureText && element.textContent?.trim() && !hasVisualStyles ? 'TEXT' : 'FRAME',
       name: element.tagName.toLowerCase(),
@@ -680,7 +726,12 @@ export class App implements OnInit {
       styles: {
         backgroundColor: this.rgbaToHex(style.backgroundColor),
         borderRadius: parseFloat(style.borderRadius) || 0,
-        layoutMode: 'NONE',
+        layoutMode: layoutMode,
+        primaryAxisSizingMode: primaryAxisSizingMode,
+        counterAxisSizingMode: counterAxisSizingMode,
+        layoutPositioning: layoutPositioning,
+        layoutGrow: layoutGrow,
+        layoutAlign: layoutAlign,
         paddingTop: parseFloat(style.paddingTop) || 0,
         paddingRight: parseFloat(style.paddingRight) || 0,
         paddingBottom: parseFloat(style.paddingBottom) || 0,
@@ -705,6 +756,25 @@ export class App implements OnInit {
       nodeData.y = 0;
     }
 
+    // Image and Gradient extraction
+    if (element.tagName.toLowerCase() === 'img') {
+      nodeData.type = 'FRAME';
+      nodeData.imageUrl = (element as HTMLImageElement).src;
+    }
+
+    const bgImage = style.backgroundImage;
+    if (bgImage && bgImage !== 'none') {
+      const imgMatch = bgImage.match(/url\(['"]?(.*?)['"]?\)/);
+      if (imgMatch) {
+        nodeData.backgroundImageUrl = imgMatch[1];
+      } else if (bgImage.includes('gradient')) {
+        const gradient = this.parseCssGradient(bgImage, win.document);
+        if (gradient) {
+          nodeData.styles.backgroundGradient = gradient;
+        }
+      }
+    }
+
     if (nodeData.type === 'TEXT') {
       nodeData.characters = element.textContent?.trim();
       nodeData.styles.fontSize = parseFloat(style.fontSize) || 16;
@@ -714,8 +784,47 @@ export class App implements OnInit {
       nodeData.styles.lineHeight = style.lineHeight;
       nodeData.styles.textAlignHorizontal = style.textAlign.includes('center') ? 'CENTER' : style.textAlign.includes('right') ? 'RIGHT' : style.textAlign.includes('justify') ? 'JUSTIFIED' : 'LEFT';
     } else {
-      // If it's a frame, we process its childNodes to capture both elements and loose text nodes
-      const children = validChildNodes.map(child => {
+      const children: any[] = [];
+
+      // Extract ::before pseudo-element
+      const beforeStyle = win.getComputedStyle(element, '::before');
+      const beforeContent = beforeStyle.content;
+      if (beforeContent && beforeContent !== 'none' && beforeContent !== 'normal') {
+        try {
+          const span = win.document.createElement('span');
+          const contentText = beforeContent.replace(/^['"]|['"]$/g, '');
+          span.textContent = contentText;
+
+          const stylesToCopy = [
+            'display', 'position', 'top', 'right', 'bottom', 'left',
+            'width', 'height', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight',
+            'color', 'backgroundColor', 'borderRadius', 'paddingTop', 'paddingRight',
+            'paddingBottom', 'paddingLeft', 'marginTop', 'marginRight', 'marginBottom',
+            'marginLeft', 'borderStyle', 'borderWidth', 'borderColor', 'boxShadow',
+            'alignItems', 'justifyContent', 'flexDirection', 'gap'
+          ];
+          for (const prop of stylesToCopy) {
+            (span.style as any)[prop] = (beforeStyle as any)[prop];
+          }
+
+          if (element.firstChild) {
+            element.insertBefore(span, element.firstChild);
+          } else {
+            element.appendChild(span);
+          }
+
+          const beforeNode = this.extractFigmaSchema(span, win);
+          if (beforeNode) {
+            beforeNode.name = '::before';
+            children.push(beforeNode);
+          }
+          span.parentNode?.removeChild(span);
+        } catch (err) {
+          console.warn("Failed to extract ::before pseudo-element", err);
+        }
+      }
+
+      const mappedChildren = validChildNodes.map(child => {
         if (child.nodeType === Node.TEXT_NODE) {
           const text = child.textContent?.trim().replace(/\\n/g, '').replace(/\n/g, '').trim();
           if (text) {
@@ -774,6 +883,42 @@ export class App implements OnInit {
         }
         return null;
       }).filter(Boolean);
+
+      children.push(...mappedChildren);
+
+      // Extract ::after pseudo-element
+      const afterStyle = win.getComputedStyle(element, '::after');
+      const afterContent = afterStyle.content;
+      if (afterContent && afterContent !== 'none' && afterContent !== 'normal') {
+        try {
+          const span = win.document.createElement('span');
+          const contentText = afterContent.replace(/^['"]|['"]$/g, '');
+          span.textContent = contentText;
+
+          const stylesToCopy = [
+            'display', 'position', 'top', 'right', 'bottom', 'left',
+            'width', 'height', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight',
+            'color', 'backgroundColor', 'borderRadius', 'paddingTop', 'paddingRight',
+            'paddingBottom', 'paddingLeft', 'marginTop', 'marginRight', 'marginBottom',
+            'marginLeft', 'borderStyle', 'borderWidth', 'borderColor', 'boxShadow',
+            'alignItems', 'justifyContent', 'flexDirection', 'gap'
+          ];
+          for (const prop of stylesToCopy) {
+            (span.style as any)[prop] = (afterStyle as any)[prop];
+          }
+
+          element.appendChild(span);
+
+          const afterNode = this.extractFigmaSchema(span, win);
+          if (afterNode) {
+            afterNode.name = '::after';
+            children.push(afterNode);
+          }
+          span.parentNode?.removeChild(span);
+        } catch (err) {
+          console.warn("Failed to extract ::after pseudo-element", err);
+        }
+      }
 
       // If the element is an input or textarea with placeholder text, extract it as a virtual text child node
       if (element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea') {
@@ -894,5 +1039,134 @@ export class App implements OnInit {
     const a = parts[4] ? Math.round(parseFloat(parts[4]) * 255).toString(16).padStart(2, '0') : '';
     
     return `#${r}${g}${b}${a}`;
+  }
+
+  private parseRgbaColor(colorStr: string, doc: Document): { r: number, g: number, b: number, a: number } {
+    const div = doc.createElement('div');
+    div.style.color = colorStr;
+    doc.body.appendChild(div);
+    const computedColor = doc.defaultView?.getComputedStyle(div).color || 'rgb(0, 0, 0)';
+    doc.body.removeChild(div);
+    
+    const match = computedColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (match) {
+      return {
+        r: parseInt(match[1]) / 255,
+        g: parseInt(match[2]) / 255,
+        b: parseInt(match[3]) / 255,
+        a: match[4] !== undefined ? parseFloat(match[4]) : 1
+      };
+    }
+    return { r: 0, g: 0, b: 0, a: 1 };
+  }
+
+  private parseCssGradient(gradientStr: string, doc: Document): any {
+    if (!gradientStr || gradientStr === 'none') return null;
+    const linearMatch = gradientStr.match(/linear-gradient\((.*)\)/i);
+    if (linearMatch) {
+      const content = linearMatch[1];
+      const parts: string[] = [];
+      let currentPart = '';
+      let parenCount = 0;
+      for (let i = 0; i < content.length; i++) {
+        const char = content[i];
+        if (char === '(') parenCount++;
+        else if (char === ')') parenCount--;
+        
+        if (char === ',' && parenCount === 0) {
+          parts.push(currentPart.trim());
+          currentPart = '';
+        } else {
+          currentPart += char;
+        }
+      }
+      if (currentPart.trim()) {
+        parts.push(currentPart.trim());
+      }
+      if (parts.length < 2) return null;
+
+      let angleDeg = 180;
+      let colorStopsStartIndex = 0;
+      const firstPart = parts[0];
+      if (firstPart.includes('deg') || firstPart.includes('to ')) {
+        colorStopsStartIndex = 1;
+        if (firstPart.includes('deg')) {
+          const degMatch = firstPart.match(/(-?\d+(?:\.\d+)?)\s*deg/);
+          if (degMatch) {
+            angleDeg = parseFloat(degMatch[1]);
+          }
+        } else if (firstPart.includes('to ')) {
+          const direction = firstPart.replace(/\s+/g, ' ').toLowerCase();
+          if (direction === 'to top') angleDeg = 0;
+          else if (direction === 'to right') angleDeg = 90;
+          else if (direction === 'to bottom') angleDeg = 180;
+          else if (direction === 'to left') angleDeg = 270;
+          else if (direction === 'to top right') angleDeg = 45;
+          else if (direction === 'to bottom right') angleDeg = 135;
+          else if (direction === 'to bottom left') angleDeg = 225;
+          else if (direction === 'to top left') angleDeg = 315;
+        }
+      }
+
+      const stopsRaw = parts.slice(colorStopsStartIndex);
+      const gradientStops: any[] = [];
+      stopsRaw.forEach((stopStr) => {
+        const posMatch = stopStr.match(/(\d+(?:\.\d+)?)\s*%/);
+        let position = posMatch ? parseFloat(posMatch[1]) / 100 : null;
+        let colorPart = stopStr;
+        if (posMatch) {
+          colorPart = stopStr.replace(posMatch[0], '').trim();
+        }
+        const color = this.parseRgbaColor(colorPart, doc);
+        gradientStops.push({ position, color });
+      });
+
+      for (let i = 0; i < gradientStops.length; i++) {
+        if (gradientStops[i].position === null) {
+          if (i === 0) {
+            gradientStops[i].position = 0;
+          } else if (i === gradientStops.length - 1) {
+            gradientStops[i].position = 1;
+          } else {
+            let nextIndex = i + 1;
+            while (nextIndex < gradientStops.length && gradientStops[nextIndex].position === null) {
+              nextIndex++;
+            }
+            const nextPos = nextIndex < gradientStops.length ? gradientStops[nextIndex].position : 1;
+            const prevPos = gradientStops[i - 1].position;
+            const steps = nextIndex - (i - 1);
+            gradientStops[i].position = prevPos + (nextPos - prevPos) / steps;
+          }
+        }
+      }
+
+      const rad = (angleDeg * Math.PI) / 180;
+      const dx = Math.sin(rad);
+      const dy = -Math.cos(rad);
+      const sx = 0.5 - dx / 2;
+      const sy = 0.5 - dy / 2;
+      const ex = 0.5 + dx / 2;
+      const ey = 0.5 + dy / 2;
+
+      const a = ex - sx;
+      const b = -(ey - sy);
+      const c = ey - sy;
+      const d = ex - sx;
+      const tx = sx - 0.5 * b;
+      const ty = sy - 0.5 * d;
+
+      return {
+        type: 'GRADIENT_LINEAR',
+        gradientTransform: [
+          [a, b, tx],
+          [c, d, ty]
+        ],
+        gradientStops: gradientStops.map(s => ({
+          position: s.position,
+          color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }
+        }))
+      };
+    }
+    return null;
   }
 }

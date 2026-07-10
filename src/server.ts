@@ -137,17 +137,92 @@ app.post('/api/figma/disconnect', (req, res) => {
   res.json({ success: true });
 });
 
+// Image Proxy Endpoint to bypass CORS
+app.get('/api/images/proxy', async (req, res) => {
+  const url = req.query['url'] as string;
+  if (!url) {
+    res.status(400).send('Missing url parameter');
+    return;
+  }
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      res.status(response.status).send(`Failed to fetch image: ${response.statusText}`);
+      return;
+    }
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.setHeader('Content-Type', contentType);
+    res.send(buffer);
+  } catch (err) {
+    console.error('Image proxy error:', err);
+    res.status(500).send('Internal server error proxying image');
+  }
+});
+
+// Helper functions to fetch images and convert to base64
+async function fetchAndBase64(url: string, reqHeadersHost: string, isHttps: boolean): Promise<string | null> {
+  try {
+    let targetUrl = url;
+    if (url.startsWith('/')) {
+      const protocol = isHttps ? 'https' : 'http';
+      targetUrl = `${protocol}://${reqHeadersHost}${url}`;
+    }
+    const response = await fetch(targetUrl);
+    if (!response.ok) {
+      console.warn(`Failed to fetch image from: ${targetUrl}. Status: ${response.status}`);
+      return null;
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('base64');
+  } catch (err) {
+    console.error(`Error fetching/converting image from: ${url}`, err);
+    return null;
+  }
+}
+
+async function resolveNodeImages(node: any, reqHeadersHost: string, isHttps: boolean) {
+  if (node.imageUrl) {
+    const base64 = await fetchAndBase64(node.imageUrl, reqHeadersHost, isHttps);
+    if (base64) {
+      node.imageBase64 = base64;
+    }
+  }
+  if (node.backgroundImageUrl) {
+    const base64 = await fetchAndBase64(node.backgroundImageUrl, reqHeadersHost, isHttps);
+    if (base64) {
+      node.backgroundImageBase64 = base64;
+    }
+  }
+  if (node.children && node.children.length > 0) {
+    for (const child of node.children) {
+      await resolveNodeImages(child, reqHeadersHost, isHttps);
+    }
+  }
+}
+
 // Designs API Endpoints
 app.get('/api/figma/designs', (req, res) => {
   const designs = getDesigns();
   res.json({ success: true, designs });
 });
 
-app.post('/api/figma/designs', (req, res) => {
+app.post('/api/figma/designs', async (req, res) => {
   const { name, device, width, height, nodes } = req.body;
   if (!name || !nodes) {
     res.status(400).json({ success: false, error: 'Missing name or nodes' });
     return;
+  }
+
+  const reqHeadersHost = req.headers.host || 'localhost:3000';
+  const isHttps = req.secure;
+
+  try {
+    for (const node of nodes) {
+      await resolveNodeImages(node, reqHeadersHost, isHttps);
+    }
+  } catch (err) {
+    console.error('Error resolving images in designs POST:', err);
   }
 
   const designs = getDesigns();

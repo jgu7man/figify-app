@@ -18,8 +18,85 @@ figma.ui.onmessage = async (msg: any) => {
     if (!design) return;
 
     try {
-      // Load fallback font first so it is guaranteed to be ready
-      await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+      // Gather all fonts in the design recursively
+      const fontsMap = new Map<string, Set<string>>();
+      const collectFonts = (nodes: any[]) => {
+        for (const node of nodes) {
+          if (node.type === 'TEXT') {
+            const family = node.styles?.fontFamily || 'Inter';
+            const weight = node.styles?.fontWeight || '400';
+            if (!fontsMap.has(family)) {
+              fontsMap.set(family, new Set());
+            }
+            fontsMap.get(family)!.add(weight);
+          }
+          if (node.children && node.children.length > 0) {
+            collectFonts(node.children);
+          }
+        }
+      };
+
+      if (design.nodes) {
+        collectFonts(design.nodes);
+      }
+
+      const getFigmaFontName = (fontFamily: string, fontWeight: string): { family: string, style: string } => {
+        let family = fontFamily.split(',')[0].replace(/['"]/g, '').trim();
+        if (!family || family === 'inherit' || family === 'sans-serif') {
+          family = "Inter";
+        }
+        let style = "Regular";
+        const weight = fontWeight.toString().toLowerCase();
+        if (weight === 'bold' || weight === '700' || weight === '800' || weight === '900') {
+          style = "Bold";
+        } else if (weight === 'medium' || weight === '500') {
+          style = "Medium";
+        } else if (weight === 'semibold' || weight === '600') {
+          style = "SemiBold";
+        } else if (weight === 'light' || weight === '300') {
+          style = "Light";
+        }
+        return { family, style };
+      };
+
+      // Map to unique Figma FontNames
+      const uniqueFonts = new Map<string, { family: string, style: string }>();
+      const fontList: { family: string, style: string }[] = [];
+      fontsMap.forEach((weights, family) => {
+        weights.forEach(weight => {
+          const resolved = getFigmaFontName(family, weight);
+          const key = `${resolved.family}_${resolved.style}`;
+          if (!uniqueFonts.has(key)) {
+            uniqueFonts.set(key, resolved);
+            fontList.push(resolved);
+          }
+        });
+      });
+
+      // Always include Inter Regular fallback
+      const fallbackKey = "Inter_Regular";
+      if (!uniqueFonts.has(fallbackKey)) {
+        fontList.push({ family: "Inter", style: "Regular" });
+      }
+
+      // Preload all fonts in parallel
+      const missingFonts: string[] = [];
+      await Promise.all(
+        fontList.map(async (font) => {
+          try {
+            await figma.loadFontAsync(font);
+          } catch (e) {
+            console.warn(`Failed to preload font: ${font.family} ${font.style}`, e);
+            if (font.family !== "Inter") {
+              missingFonts.push(`${font.family} (${font.style})`);
+            }
+          }
+        })
+      );
+
+      if (missingFonts.length > 0) {
+        figma.notify(`Missing system/web fonts: ${missingFonts.join(', ')}. Using fallbacks.`, { timeout: 4500 });
+      }
 
 
       // Create main viewport frame
@@ -81,6 +158,53 @@ function parseHexColor(colorStr: string): { r: number, g: number, b: number, a: 
   }
   
   return { r: 0, g: 0, b: 0, a: 0 };
+}
+
+function decodeBase64(base64: string): Uint8Array {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const lookup = new Uint8Array(256);
+  for (let i = 0; i < chars.length; i++) {
+    lookup[chars.charCodeAt(i)] = i;
+  }
+
+  const base64Data = base64.replace(/^data:image\/[a-z]+;base64,/, '').replace(/=/g, '');
+  const bufferLength = Math.floor(base64Data.length * 0.75);
+  const bytes = new Uint8Array(bufferLength);
+
+  let p = 0;
+  for (let i = 0; i < base64Data.length; i += 4) {
+    const c1 = lookup[base64Data.charCodeAt(i)] || 0;
+    const c2 = lookup[base64Data.charCodeAt(i + 1)] || 0;
+    const c3 = lookup[base64Data.charCodeAt(i + 2)] || 0;
+    const c4 = lookup[base64Data.charCodeAt(i + 3)] || 0;
+
+    bytes[p++] = (c1 << 2) | (c2 >> 4);
+    if (p < bufferLength) {
+      bytes[p++] = ((c2 & 15) << 4) | (c3 >> 2);
+    }
+    if (p < bufferLength) {
+      bytes[p++] = ((c3 & 3) << 6) | (c4 & 63);
+    }
+  }
+
+  return bytes;
+}
+
+function applyChildLayoutConstraints(figmaNode: any, node: any, parent: any) {
+  if (parent && parent.layoutMode && parent.layoutMode !== 'NONE') {
+    if (node.styles?.layoutPositioning === 'ABSOLUTE') {
+      figmaNode.layoutPositioning = "ABSOLUTE";
+      figmaNode.x = node.x;
+      figmaNode.y = node.y;
+    } else {
+      if (node.styles?.layoutGrow !== undefined) {
+        figmaNode.layoutGrow = node.styles.layoutGrow;
+      }
+      if (node.styles?.layoutAlign !== undefined) {
+        figmaNode.layoutAlign = node.styles.layoutAlign;
+      }
+    }
+  }
 }
 
 function parseBoxShadows(shadowStr: string): any[] {
@@ -168,6 +292,7 @@ async function createFigmaNode(node: any, parent: any) {
       vector.y = node.y;
       vector.resize(Math.max(0.01, node.width || 0.01), Math.max(0.01, node.height || 0.01));
       parent.appendChild(vector);
+      applyChildLayoutConstraints(vector, node, parent);
     } catch (e) {
       console.error("Failed to parse SVG icon", e);
     }
@@ -215,6 +340,7 @@ async function createFigmaNode(node: any, parent: any) {
     }
     
     parent.appendChild(figmaNode);
+    applyChildLayoutConstraints(figmaNode, node, parent);
   } else {
     // FRAME
     const figmaNode = figma.createFrame();
@@ -226,12 +352,25 @@ async function createFigmaNode(node: any, parent: any) {
     figmaNode.x = node.x;
     figmaNode.y = node.y;
 
-    const bg = parseHexColor(node.styles?.backgroundColor);
-    if (bg.a > 0) {
-      figmaNode.fills = [{ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: bg.a }];
+    let finalFills: any[] = [];
+    if (node.imageBase64 || node.backgroundImageBase64) {
+      try {
+        const base64Str = node.imageBase64 || node.backgroundImageBase64;
+        const bytes = decodeBase64(base64Str);
+        const image = figma.createImage(bytes);
+        finalFills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
+      } catch (err) {
+        console.error("Failed to create Figma image paint", err);
+      }
+    } else if (node.styles?.backgroundGradient) {
+      finalFills = [node.styles.backgroundGradient];
     } else {
-      figmaNode.fills = [];
+      const bg = parseHexColor(node.styles?.backgroundColor);
+      if (bg.a > 0) {
+        finalFills = [{ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: bg.a }];
+      }
     }
+    figmaNode.fills = finalFills;
 
     if (node.styles?.borderRadius > 0) {
       figmaNode.cornerRadius = node.styles.borderRadius;
@@ -263,9 +402,31 @@ async function createFigmaNode(node: any, parent: any) {
       }
     }
 
-    // Disabling Auto Layout mapping to prioritize absolute positioning fidelity
+    // Auto Layout (CSS Flexbox mapping)
+    if (node.styles?.layoutMode && node.styles.layoutMode !== 'NONE') {
+      figmaNode.layoutMode = node.styles.layoutMode;
+      figmaNode.paddingTop = node.styles.paddingTop || 0;
+      figmaNode.paddingRight = node.styles.paddingRight || 0;
+      figmaNode.paddingBottom = node.styles.paddingBottom || 0;
+      figmaNode.paddingLeft = node.styles.paddingLeft || 0;
+      figmaNode.itemSpacing = node.styles.itemSpacing || 0;
+      
+      if (node.styles.primaryAxisAlignItems) {
+        figmaNode.primaryAxisAlignItems = node.styles.primaryAxisAlignItems;
+      }
+      if (node.styles.counterAxisAlignItems) {
+        figmaNode.counterAxisAlignItems = node.styles.counterAxisAlignItems;
+      }
+      if (node.styles.primaryAxisSizingMode) {
+        figmaNode.primaryAxisSizingMode = node.styles.primaryAxisSizingMode;
+      }
+      if (node.styles.counterAxisSizingMode) {
+        figmaNode.counterAxisSizingMode = node.styles.counterAxisSizingMode;
+      }
+    }
 
     parent.appendChild(figmaNode);
+    applyChildLayoutConstraints(figmaNode, node, parent);
 
     // Recursively process children
     if (node.children && node.children.length > 0) {
