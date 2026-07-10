@@ -1,0 +1,20 @@
+# Cloud Run service configuration
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  minInstances: 0
+  maxInstances: 10
+  concurrency: 80
+
+# Environment variables
+env:
+  - variable: GEMINI_API_KEY
+    secret: geminiApiKeySecret
+  - variable: FIGMA_CLIENT_ID
+    secret: figmaClientIdSecret
+  - variable: FIGMA_CLIENT_SECRET
+    secret: figmaClientSecretSecret
+  - variable: APP_URL
+    value: "https://figify-app.web.app"
+  - variable: GEMINI_API_KEY_SECRET
+    secret: geminiApiKeySecret

@@ -561,6 +561,27 @@ export class App implements OnInit {
     navigator.clipboard.writeText(this.jsonOutput());
   }
 
+  private isTextBlock(element: HTMLElement): boolean {
+    const tagName = element.tagName.toLowerCase();
+    const textTags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a', 'label', 'legend', 'strong', 'em', 'b', 'i', 'small', 'code'];
+    if (!textTags.includes(tagName)) return false;
+
+    const layoutElements = element.querySelectorAll('div, section, article, nav, header, footer, main, aside, ul, ol, li, table, form, input, textarea, button, img, svg');
+    if (layoutElements.length > 0) return false;
+
+    return (element.textContent || '').trim().length > 0;
+  }
+
+  private getElementText(element: HTMLElement, doc: Document): string {
+    if (element.childNodes.length === 1 && element.firstChild?.nodeType === Node.TEXT_NODE) {
+      return element.textContent?.trim() || '';
+    }
+    const clone = element.cloneNode(true) as HTMLElement;
+    const brs = clone.querySelectorAll('br');
+    brs.forEach(br => br.parentNode?.replaceChild(doc.createTextNode('\n'), br));
+    return clone.textContent?.trim().replace(/[ \t]+/g, ' ') || '';
+  }
+
   private extractFigmaSchema(element: HTMLElement, win: Window): any {
     if (element.nodeType !== Node.ELEMENT_NODE) return null;
     
@@ -575,6 +596,30 @@ export class App implements OnInit {
     const parentRect = element.parentElement?.getBoundingClientRect();
     let x = rect.left - (parentRect ? parentRect.left : 0);
     let y = rect.top - (parentRect ? parentRect.top : 0);
+
+    // Check if it is a text block first
+    if (this.isTextBlock(element)) {
+      const opacityVal = style.opacity !== undefined && style.opacity !== '' ? parseFloat(style.opacity) : 1;
+      return {
+        type: 'TEXT',
+        name: this.getSmartNodeName(element),
+        x: x,
+        y: y,
+        width: rect.width,
+        height: rect.height,
+        characters: this.getElementText(element, win.document),
+        styles: {
+          fontSize: parseFloat(style.fontSize) || 16,
+          fontFamily: style.fontFamily,
+          color: this.rgbaToHex(style.color),
+          fontWeight: style.fontWeight,
+          lineHeight: style.lineHeight,
+          textAlignHorizontal: style.textAlign.includes('center') ? 'CENTER' : style.textAlign.includes('right') ? 'RIGHT' : style.textAlign.includes('justify') ? 'JUSTIFIED' : 'LEFT',
+          layoutPositioning: style.position === 'absolute' || style.position === 'fixed' ? 'ABSOLUTE' : 'RELATIVE',
+          opacity: opacityVal
+        }
+      };
+    }
 
     // Check if this element is a screen-sized overlay / modal backdrop based on viewport dimension ratios
     const isModalBackdrop = (style.position === 'fixed' || style.position === 'absolute') && 
@@ -606,14 +651,25 @@ export class App implements OnInit {
 
     // Check if SVG
     if (element.tagName.toLowerCase() === 'svg') {
+      let svgHtml = element.outerHTML;
+      const computedColor = style.color || 'rgb(0, 0, 0)';
+      
+      // Replace currentColor with computed color
+      svgHtml = svgHtml.replace(/currentColor/gi, computedColor);
+      
+      // If the svg doesn't have a fill or stroke attribute, inject the computed color as the default fill
+      if (!svgHtml.includes('fill=') && !svgHtml.includes('stroke=')) {
+        svgHtml = svgHtml.replace('<svg', `<svg fill="${computedColor}"`);
+      }
+
       return {
         type: 'VECTOR',
-        name: 'svg',
+        name: this.getSmartNodeName(element),
         x: x,
         y: y,
         width: rect.width,
         height: rect.height,
-        svgContent: element.outerHTML
+        svgContent: svgHtml
       };
     }
 
@@ -670,9 +726,65 @@ export class App implements OnInit {
     else if (borderLeft > 0 && !isLeftColorDifferent) activeStrokeColor = style.borderLeftColor;
     else if (style.borderColor && style.borderStyle !== 'none') activeStrokeColor = style.borderColor;
 
+    const isFlex = style.display === 'flex' || style.display === 'inline-flex' || style.display === 'inline-block';
+    const flexDir = style.flexDirection;
+    const layoutMode = isFlex 
+      ? (flexDir.includes('column') ? 'VERTICAL' : 'HORIZONTAL')
+      : 'NONE';
+
+    const isWidthAuto = style.width === 'auto' || style.width.includes('content');
+    const isHeightAuto = style.height === 'auto' || style.height.includes('content');
+    
+    let primaryAxisSizingMode = 'FIXED';
+    let counterAxisSizingMode = 'FIXED';
+    if (layoutMode === 'HORIZONTAL') {
+      primaryAxisSizingMode = isWidthAuto ? 'AUTO' : 'FIXED';
+      counterAxisSizingMode = isHeightAuto ? 'AUTO' : 'FIXED';
+    } else if (layoutMode === 'VERTICAL') {
+      primaryAxisSizingMode = isHeightAuto ? 'AUTO' : 'FIXED';
+      counterAxisSizingMode = isWidthAuto ? 'AUTO' : 'FIXED';
+    }
+
+    let layoutPositioning = 'RELATIVE';
+    if (style.position === 'absolute' || style.position === 'fixed') {
+      layoutPositioning = 'ABSOLUTE';
+    }
+
+    let layoutGrow = 0;
+    const flexGrowVal = parseFloat(style.flexGrow) || 0;
+    if (flexGrowVal > 0) {
+      layoutGrow = 1;
+    }
+
+    let layoutAlign = 'MIN';
+    const parentEl = element.parentElement;
+    if (parentEl) {
+      const parentStyle = win.getComputedStyle(parentEl);
+      const isParentFlex = parentStyle.display === 'flex' || parentStyle.display === 'inline-flex' || parentStyle.display === 'inline-block';
+      if (isParentFlex) {
+        if (style.alignSelf === 'stretch' || (parentStyle.alignItems === 'stretch' && style.alignSelf !== 'flex-start')) {
+          layoutAlign = 'STRETCH';
+        } else if (style.alignSelf === 'center' || parentStyle.alignItems === 'center') {
+          layoutAlign = 'CENTER';
+        } else if (style.alignSelf === 'flex-end' || parentStyle.alignItems === 'flex-end') {
+          layoutAlign = 'MAX';
+        }
+      }
+    }
+
+    const opacityVal = style.opacity !== undefined && style.opacity !== '' ? parseFloat(style.opacity) : 1;
+    const filter = style.filter;
+    let blurRadius = 0;
+    if (filter && filter.includes('blur')) {
+      const match = filter.match(/blur\(([\d.]+)px\)/);
+      if (match) {
+        blurRadius = parseFloat(match[1]);
+      }
+    }
+
     const nodeData: any = {
       type: isPureText && element.textContent?.trim() && !hasVisualStyles ? 'TEXT' : 'FRAME',
-      name: element.tagName.toLowerCase(),
+      name: this.getSmartNodeName(element),
       x: x,
       y: y,
       width: rect.width,
@@ -680,11 +792,20 @@ export class App implements OnInit {
       styles: {
         backgroundColor: this.rgbaToHex(style.backgroundColor),
         borderRadius: parseFloat(style.borderRadius) || 0,
-        layoutMode: 'NONE',
+        layoutMode: layoutMode,
+        primaryAxisSizingMode: primaryAxisSizingMode,
+        counterAxisSizingMode: counterAxisSizingMode,
+        layoutPositioning: layoutPositioning,
+        layoutGrow: layoutGrow,
+        layoutAlign: layoutAlign,
         paddingTop: parseFloat(style.paddingTop) || 0,
         paddingRight: parseFloat(style.paddingRight) || 0,
         paddingBottom: parseFloat(style.paddingBottom) || 0,
         paddingLeft: parseFloat(style.paddingLeft) || 0,
+        marginTop: parseFloat(style.marginTop) || 0,
+        marginRight: parseFloat(style.marginRight) || 0,
+        marginBottom: parseFloat(style.marginBottom) || 0,
+        marginLeft: parseFloat(style.marginLeft) || 0,
         itemSpacing: parseFloat(style.gap) || parseFloat(style.columnGap) || parseFloat(style.rowGap) || 0,
         primaryAxisAlignItems: style.justifyContent.includes('end') ? 'MAX' : style.justifyContent.includes('center') ? 'CENTER' : style.justifyContent.includes('between') ? 'SPACE_BETWEEN' : 'MIN',
         counterAxisAlignItems: style.alignItems.includes('end') ? 'MAX' : style.alignItems.includes('center') ? 'CENTER' : 'MIN',
@@ -694,7 +815,9 @@ export class App implements OnInit {
         strokeLeftWeight: borderLeft,
         strokeWeight: borderLeft || borderTop || borderRight || borderBottom,
         strokes: activeStrokeColor !== 'transparent' && activeStrokeColor !== 'rgba(0, 0, 0, 0)' ? [this.rgbaToHex(activeStrokeColor)] : [],
-        boxShadow: style.boxShadow || 'none'
+        boxShadow: style.boxShadow || 'none',
+        opacity: opacityVal,
+        layerBlur: blurRadius
       }
     };
 
@@ -703,6 +826,25 @@ export class App implements OnInit {
       nodeData.height = win.innerHeight;
       nodeData.x = 0;
       nodeData.y = 0;
+    }
+
+    // Image and Gradient extraction
+    if (element.tagName.toLowerCase() === 'img') {
+      nodeData.type = 'FRAME';
+      nodeData.imageUrl = (element as HTMLImageElement).src;
+    }
+
+    const bgImage = style.backgroundImage;
+    if (bgImage && bgImage !== 'none') {
+      const imgMatch = bgImage.match(/url\(['"]?(.*?)['"]?\)/);
+      if (imgMatch) {
+        nodeData.backgroundImageUrl = imgMatch[1];
+      } else if (bgImage.includes('gradient')) {
+        const gradient = this.parseCssGradient(bgImage, win.document);
+        if (gradient) {
+          nodeData.styles.backgroundGradient = gradient;
+        }
+      }
     }
 
     if (nodeData.type === 'TEXT') {
@@ -714,8 +856,47 @@ export class App implements OnInit {
       nodeData.styles.lineHeight = style.lineHeight;
       nodeData.styles.textAlignHorizontal = style.textAlign.includes('center') ? 'CENTER' : style.textAlign.includes('right') ? 'RIGHT' : style.textAlign.includes('justify') ? 'JUSTIFIED' : 'LEFT';
     } else {
-      // If it's a frame, we process its childNodes to capture both elements and loose text nodes
-      const children = validChildNodes.map(child => {
+      const children: any[] = [];
+
+      // Extract ::before pseudo-element
+      const beforeStyle = win.getComputedStyle(element, '::before');
+      const beforeContent = beforeStyle.content;
+      if (beforeContent && beforeContent !== 'none' && beforeContent !== 'normal') {
+        try {
+          const span = win.document.createElement('span');
+          const contentText = beforeContent.replace(/^['"]|['"]$/g, '');
+          span.textContent = contentText;
+
+          const stylesToCopy = [
+            'display', 'position', 'top', 'right', 'bottom', 'left',
+            'width', 'height', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight',
+            'color', 'backgroundColor', 'borderRadius', 'paddingTop', 'paddingRight',
+            'paddingBottom', 'paddingLeft', 'marginTop', 'marginRight', 'marginBottom',
+            'marginLeft', 'borderStyle', 'borderWidth', 'borderColor', 'boxShadow',
+            'alignItems', 'justifyContent', 'flexDirection', 'gap'
+          ];
+          for (const prop of stylesToCopy) {
+            (span.style as any)[prop] = (beforeStyle as any)[prop];
+          }
+
+          if (element.firstChild) {
+            element.insertBefore(span, element.firstChild);
+          } else {
+            element.appendChild(span);
+          }
+
+          const beforeNode = this.extractFigmaSchema(span, win);
+          if (beforeNode) {
+            beforeNode.name = '::before';
+            children.push(beforeNode);
+          }
+          span.parentNode?.removeChild(span);
+        } catch (err) {
+          console.warn("Failed to extract ::before pseudo-element", err);
+        }
+      }
+
+      const mappedChildren = validChildNodes.map(child => {
         if (child.nodeType === Node.TEXT_NODE) {
           const text = child.textContent?.trim().replace(/\\n/g, '').replace(/\n/g, '').trim();
           if (text) {
@@ -775,28 +956,65 @@ export class App implements OnInit {
         return null;
       }).filter(Boolean);
 
-      // If the element is an input or textarea with placeholder text, extract it as a virtual text child node
+      children.push(...mappedChildren);
+
+      // Extract ::after pseudo-element
+      const afterStyle = win.getComputedStyle(element, '::after');
+      const afterContent = afterStyle.content;
+      if (afterContent && afterContent !== 'none' && afterContent !== 'normal') {
+        try {
+          const span = win.document.createElement('span');
+          const contentText = afterContent.replace(/^['"]|['"]$/g, '');
+          span.textContent = contentText;
+
+          const stylesToCopy = [
+            'display', 'position', 'top', 'right', 'bottom', 'left',
+            'width', 'height', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight',
+            'color', 'backgroundColor', 'borderRadius', 'paddingTop', 'paddingRight',
+            'paddingBottom', 'paddingLeft', 'marginTop', 'marginRight', 'marginBottom',
+            'marginLeft', 'borderStyle', 'borderWidth', 'borderColor', 'boxShadow',
+            'alignItems', 'justifyContent', 'flexDirection', 'gap'
+          ];
+          for (const prop of stylesToCopy) {
+            (span.style as any)[prop] = (afterStyle as any)[prop];
+          }
+
+          element.appendChild(span);
+
+          const afterNode = this.extractFigmaSchema(span, win);
+          if (afterNode) {
+            afterNode.name = '::after';
+            children.push(afterNode);
+          }
+          span.parentNode?.removeChild(span);
+        } catch (err) {
+          console.warn("Failed to extract ::after pseudo-element", err);
+        }
+      }
+
+      // If the element is an input or textarea with placeholder text or value, extract it as a virtual text child node
       if (element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea') {
         const inputEl = element as HTMLInputElement;
         const placeholder = inputEl.getAttribute('placeholder');
         const value = inputEl.value;
+        const textToShow = value || placeholder;
         
-        if (placeholder && !value) {
+        if (textToShow) {
           const paddingLeft = parseFloat(style.paddingLeft) || 12;
           const paddingTop = parseFloat(style.paddingTop) || 8;
           
           children.push({
             type: 'TEXT',
-            name: 'placeholder',
-            characters: placeholder,
+            name: value ? 'value' : 'placeholder',
+            characters: textToShow,
             x: paddingLeft,
             y: paddingTop,
-            width: rect.width - paddingLeft - (parseFloat(style.paddingRight) || 12),
-            height: rect.height - paddingTop - (parseFloat(style.paddingBottom) || 8),
+            width: Math.max(10, rect.width - paddingLeft - (parseFloat(style.paddingRight) || 12)),
+            height: Math.max(10, rect.height - paddingTop - (parseFloat(style.paddingBottom) || 8)),
             styles: {
               fontSize: parseFloat(style.fontSize) || 14,
               fontFamily: style.fontFamily,
-              color: '#94a3b8',
+              color: value ? this.rgbaToHex(style.color) : '#94a3b8',
               fontWeight: '400',
               lineHeight: style.lineHeight,
               textAlignHorizontal: 'LEFT'
@@ -883,10 +1101,27 @@ export class App implements OnInit {
     return nodeData;
   }
 
-  private rgbaToHex(rgba: string): string {
-    if (rgba === 'rgba(0, 0, 0, 0)' || rgba === 'transparent') return 'transparent';
+  private rgbaToHex(colorStr: string): string {
+    if (!colorStr || colorStr === 'transparent' || colorStr === 'rgba(0, 0, 0, 0)') return 'transparent';
+    
+    let rgba = colorStr;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = colorStr;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        rgba = `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+      }
+    } catch (e) {
+      console.warn("Failed to normalize color using canvas:", colorStr, e);
+    }
+
     const parts = rgba.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/);
-    if (!parts) return rgba;
+    if (!parts) return colorStr;
     
     const r = parseInt(parts[1], 10).toString(16).padStart(2, '0');
     const g = parseInt(parts[2], 10).toString(16).padStart(2, '0');
@@ -894,5 +1129,164 @@ export class App implements OnInit {
     const a = parts[4] ? Math.round(parseFloat(parts[4]) * 255).toString(16).padStart(2, '0') : '';
     
     return `#${r}${g}${b}${a}`;
+  }
+
+  private getSmartNodeName(element: HTMLElement): string {
+    const tagName = element.tagName.toLowerCase();
+    
+    // 1. If it has a specific semantic ID, use it
+    const id = element.id;
+    if (id && id.trim().length > 0) {
+      return `#${id.trim()}`;
+    }
+
+    // 2. Process class names to find a semantic one
+    const classList = Array.from(element.classList);
+    if (classList.length > 0) {
+      // Filter out utility classes (especially Tailwind CSS classes)
+      const utilityRegex = /^(flex|grid|block|inline|inline-flex|p-|px-|py-|pt-|pr-|pb-|pl-|m-|mx-|my-|mt-|mr-|mb-|ml-|gap-|space-|bg-|text-|rounded-|w-|h-|border-|shadow-|justify-|items-|self-|min-|max-|top-|right-|bottom-|left-|relative|absolute|fixed|overflow-|z-|cursor-|opacity-|transition-|duration-|ease-|select-|pointer-|focus-|hover-)/;
+      
+      const semanticClass = classList.find(cls => !utilityRegex.test(cls));
+      if (semanticClass) {
+        return `.${semanticClass}`;
+      }
+    }
+
+    // 3. Fallback to descriptive semantic tag names capitalized
+    const semanticTags = ['header', 'footer', 'nav', 'main', 'aside', 'section', 'article', 'button', 'input', 'img', 'svg', 'a'];
+    if (semanticTags.includes(tagName)) {
+      return tagName.charAt(0).toUpperCase() + tagName.slice(1);
+    }
+
+    // Generic fallback
+    return 'Frame';
+  }
+
+  private parseRgbaColor(colorStr: string, doc: Document): { r: number, g: number, b: number, a: number } {
+    try {
+      const canvas = doc.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = colorStr;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        return { r: r / 255, g: g / 255, b: b / 255, a: a / 255 };
+      }
+    } catch (e) {
+      console.warn("Failed to parse color via canvas:", colorStr, e);
+    }
+    return { r: 0, g: 0, b: 0, a: 1 };
+  }
+
+  private parseCssGradient(gradientStr: string, doc: Document): any {
+    if (!gradientStr || gradientStr === 'none') return null;
+    const linearMatch = gradientStr.match(/linear-gradient\((.*)\)/i);
+    if (linearMatch) {
+      const content = linearMatch[1];
+      const parts: string[] = [];
+      let currentPart = '';
+      let parenCount = 0;
+      for (let i = 0; i < content.length; i++) {
+        const char = content[i];
+        if (char === '(') parenCount++;
+        else if (char === ')') parenCount--;
+        
+        if (char === ',' && parenCount === 0) {
+          parts.push(currentPart.trim());
+          currentPart = '';
+        } else {
+          currentPart += char;
+        }
+      }
+      if (currentPart.trim()) {
+        parts.push(currentPart.trim());
+      }
+      if (parts.length < 2) return null;
+
+      let angleDeg = 180;
+      let colorStopsStartIndex = 0;
+      const firstPart = parts[0];
+      if (firstPart.includes('deg') || firstPart.includes('to ')) {
+        colorStopsStartIndex = 1;
+        if (firstPart.includes('deg')) {
+          const degMatch = firstPart.match(/(-?\d+(?:\.\d+)?)\s*deg/);
+          if (degMatch) {
+            angleDeg = parseFloat(degMatch[1]);
+          }
+        } else if (firstPart.includes('to ')) {
+          const direction = firstPart.replace(/\s+/g, ' ').toLowerCase();
+          if (direction === 'to top') angleDeg = 0;
+          else if (direction === 'to right') angleDeg = 90;
+          else if (direction === 'to bottom') angleDeg = 180;
+          else if (direction === 'to left') angleDeg = 270;
+          else if (direction === 'to top right') angleDeg = 45;
+          else if (direction === 'to bottom right') angleDeg = 135;
+          else if (direction === 'to bottom left') angleDeg = 225;
+          else if (direction === 'to top left') angleDeg = 315;
+        }
+      }
+
+      const stopsRaw = parts.slice(colorStopsStartIndex);
+      const gradientStops: any[] = [];
+      stopsRaw.forEach((stopStr) => {
+        const posMatch = stopStr.match(/(\d+(?:\.\d+)?)\s*%/);
+        let position = posMatch ? parseFloat(posMatch[1]) / 100 : null;
+        let colorPart = stopStr;
+        if (posMatch) {
+          colorPart = stopStr.replace(posMatch[0], '').trim();
+        }
+        const color = this.parseRgbaColor(colorPart, doc);
+        gradientStops.push({ position, color });
+      });
+
+      for (let i = 0; i < gradientStops.length; i++) {
+        if (gradientStops[i].position === null) {
+          if (i === 0) {
+            gradientStops[i].position = 0;
+          } else if (i === gradientStops.length - 1) {
+            gradientStops[i].position = 1;
+          } else {
+            let nextIndex = i + 1;
+            while (nextIndex < gradientStops.length && gradientStops[nextIndex].position === null) {
+              nextIndex++;
+            }
+            const nextPos = nextIndex < gradientStops.length ? gradientStops[nextIndex].position : 1;
+            const prevPos = gradientStops[i - 1].position;
+            const steps = nextIndex - (i - 1);
+            gradientStops[i].position = prevPos + (nextPos - prevPos) / steps;
+          }
+        }
+      }
+
+      const rad = (angleDeg * Math.PI) / 180;
+      const dx = Math.sin(rad);
+      const dy = -Math.cos(rad);
+      const sx = 0.5 - dx / 2;
+      const sy = 0.5 - dy / 2;
+      const ex = 0.5 + dx / 2;
+      const ey = 0.5 + dy / 2;
+
+      const a = ex - sx;
+      const b = -(ey - sy);
+      const c = ey - sy;
+      const d = ex - sx;
+      const tx = sx - 0.5 * b;
+      const ty = sy - 0.5 * d;
+
+      return {
+        type: 'GRADIENT_LINEAR',
+        gradientTransform: [
+          [a, b, tx],
+          [c, d, ty]
+        ],
+        gradientStops: gradientStops.map(s => ({
+          position: s.position,
+          color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }
+        }))
+      };
+    }
+    return null;
   }
 }

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      --glass-bg: rgba(255, 255, 255, 0.03);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --brand-primary: #3b82f6;
+      --brand-hover: #2563eb;
+      --brand-shadow: rgba(59, 130, 246, 0.3);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 24px;
+      background: var(--bg-gradient);
+      font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+      color: var(--text-main);
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .header {
+      text-align: center;
+    }
+
+    .logo-text {
+      font-size: 22px;
+      font-weight: 800;
+      background: linear-gradient(to right, #3b82f6, #60a5fa, #34d399);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin: 0 0 4px 0;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .card {
+      width: 100%;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 16px;
+      box-sizing: border-box;
+      backdrop-filter: blur(16px);
+      text-align: center;
+    }
+
+    .action-btn {
+      width: 100%;
+      background: var(--brand-primary);
+      border: none;
+      border-radius: 12px;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      padding: 12px;
+      cursor: pointer;
+      box-shadow: 0 4px 14px var(--brand-shadow);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .action-btn:hover:not(:disabled) {
+      background: var(--brand-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px var(--brand-shadow);
+    }
+
+    .action-btn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .action-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .status-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 12px;
+      min-height: 18px;
+      transition: all 0.2s;
+    }
+
+    .status-success {
+      color: #34d399;
+    }
+
+    .status-error {
+      color: #f87171;
+    }
+
+    .info-footer {
+      font-size: 10px;
+      color: rgba(148, 163, 184, 0.6);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="logo-text">Figify Extractor</h1>
+      <p class="subtitle">Extract live web layouts directly to Figma</p>
+    </div>
+
+    <div class="card">
+      <button id="extract-btn" class="action-btn">
+        <span>Sync Active Tab</span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+        </svg>
+      </button>
+      <div id="status" class="status-text">Ready to sync</div>
+    </div>
+
+    <div class="info-footer">
+      Ensure your local Figify app is running on port 3000
+    </div>
+  </div>
+  <script src="dist/popup.js"></script>
+</body>
+</html>
