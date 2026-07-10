@@ -9,9 +9,13 @@ This document describes the technical architecture and data flow of the Figify H
 ```mermaid
 graph TD
   A[Iframe DOM Preview] -->|1. Extract Nodes + Style Maps| B[Angular Layout Controller]
-  B -->|2. Send External Font/Image URLs| C[Node Express Proxy Server]
+  G[Chrome Extension] -->|1. Inject Content Script & Extract DOM| G
+  G -->|2. Local Base64 Image Resolution| G
+  G -->|3. Sync JSON Payload| C[Node Express Proxy Server]
+  B -->|2. Send External Font/Image URLs| C
   C -->|3. Fetch & Convert Binaries to Base64| B
   B -->|4. Sync Unified Figma JSON Payload| D[designs.json]
+  C -->|4. Save payload| D
   E[Figma Plugin UI] -->|5. Fetch payload| D
   E -->|6. Load Fonts & Paints| F[Figma Desktop API]
 ```
