@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Figify - Authentication Successful</title>
+  <style>
+    body {
+      background-color: #09090b;
+      color: #fafafa;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background-color: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 16px;
+      padding: 40px;
+      text-align: center;
+      max-width: 420px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+    }
+    .icon {
+      width: 48px;
+      height: 48px;
+      background-color: #064e3b;
+      color: #34d399;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px auto;
+      font-size: 24px;
+    }
+    h1 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+    }
+    p {
+      color: #a1a1aa;
+      font-size: 14px;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    button {
+      background-color: #fafafa;
+      color: #18181b;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      font-weight: 500;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #e4e4e7;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✓</div>
+    <h1>Connected to Figma</h1>
+    <p>Your Figma account has been successfully linked.</p>
+    
+    <!-- If opener is null (Figma Desktop app), display token for manual copy-paste -->
+    <div id="manual-token-container" style="display: none; margin-bottom: 24px; text-align: left;">
+      <p style="font-size: 12px; color: #a1a1aa; margin-bottom: 8px; text-align: center;">
+        Since you are using Figma Desktop, copy this token and paste it in the plugin:
+      </p>
+      <input id="token-input" type="text" readonly style="background-color: #09090b; border: 1px solid #27272a; border-radius: 6px; padding: 8px 12px; color: #fafafa; font-family: monospace; font-size: 11px; width: 100%; box-sizing: border-box; text-align: center;" onclick="this.select()" />
+    </div>
+
+    <button id="close-btn" onclick="window.close()">Close Window</button>
+  </div>
+  <script>
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+    }
+    const token = getCookie('figma_token');
+    if (token) {
+      if (window.opener) {
+        window.opener.postMessage({ type: 'FIGMA_TOKEN', token: token }, '*');
+      } else {
+        // Opener is null (Figma Desktop application)
+        document.getElementById('manual-token-container').style.display = 'block';
+        document.getElementById('token-input').value = token;
+        document.getElementById('close-btn').style.display = 'none';
+      }
+    }
+  </script>
+</body>
+</html>

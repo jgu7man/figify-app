@@ -7,23 +7,118 @@ import {
 import express from 'express';
 import {join} from 'node:path';
 
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+
+// Load .env file variables into process.env
+const envPath = join(process.cwd(), '.env');
+if (existsSync(envPath)) {
+  try {
+    const envContent = readFileSync(envPath, 'utf-8');
+    envContent.split(/\r?\n/).forEach((line) => {
+      const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+      if (match) {
+        const key = match[1];
+        let value = match[2] || '';
+        if (value.startsWith('"') && value.endsWith('"')) {
+          value = value.slice(1, -1);
+        } else if (value.startsWith("'") && value.endsWith("'")) {
+          value = value.slice(1, -1);
+        }
+        process.env[key] = value;
+      }
+    });
+  } catch (err) {
+    console.error('Failed to parse .env file:', err);
+  }
+}
+
 const browserDistFolder = join(import.meta.dirname, '../browser');
+const DESIGNS_FILE = join(process.cwd(), 'designs.json');
 
 const app = express();
 const angularApp = new AngularNodeAppEngine();
 
-/**
- * Example Express Rest API endpoints can be defined here.
- * Uncomment and define endpoints as necessary.
- */
-app.get('/api/figma/auth', (req, res) => {
-  // Mock OAuth redirection
-  res.redirect('/api/figma/callback?code=mock_figma_code');
+// Parse JSON bodies
+app.use(express.json({ limit: '10mb' }));
+
+// Custom CORS middleware to allow connection from Figma Plugin iframe
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  next();
 });
 
-app.get('/api/figma/callback', (req, res) => {
-  // Store mock token in a cookie
-  res.cookie('figma_token', 'mock_access_token', { maxAge: 900000, httpOnly: false });
+// Helper functions to persist designs
+function getDesigns() {
+  if (!existsSync(DESIGNS_FILE)) {
+    return [];
+  }
+  try {
+    return JSON.parse(readFileSync(DESIGNS_FILE, 'utf-8'));
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveDesigns(designs: any[]) {
+  writeFileSync(DESIGNS_FILE, JSON.stringify(designs, null, 2), 'utf-8');
+}
+
+/**
+ * Figma OAuth and Design Endpoints
+ */
+app.get('/api/figma/auth', (req, res) => {
+  const clientId = process.env['FIGMA_CLIENT_ID'];
+  const redirectUri = `${req.protocol}://${req.headers.host}/api/figma/callback`;
+  const state = (req.query['state'] as string) || 'web';
+  const authUrl = `https://www.figma.com/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=current_user:read&state=${state}&response_type=code`;
+  res.redirect(authUrl);
+});
+
+app.get('/api/figma/callback', async (req, res) => {
+  const code = req.query['code'];
+  const state = req.query['state'] as string;
+  const clientId = process.env['FIGMA_CLIENT_ID'];
+  const clientSecret = process.env['FIGMA_CLIENT_SECRET'];
+  const redirectUri = `${req.protocol}://${req.headers.host}/api/figma/callback`;
+
+  if (!code) {
+    res.status(400).send('Missing authorization code');
+    return;
+  }
+
+  try {
+    const response = await fetch('https://api.figma.com/v1/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        client_id: clientId || '',
+        client_secret: clientSecret || '',
+        redirect_uri: redirectUri,
+        code: code as string,
+        grant_type: 'authorization_code'
+      })
+    });
+
+    const data = (await response.json()) as any;
+    if (data.access_token) {
+      res.cookie('figma_token', data.access_token, { maxAge: 30 * 24 * 60 * 60 * 1000, httpOnly: false });
+      
+      if (state === 'plugin') {
+        res.redirect('/figma-plugin-auth.html');
+        return;
+      }
+    }
+  } catch (err) {
+    console.error('OAuth error during exchange:', err);
+  }
   res.redirect('/');
 });
 
@@ -33,7 +128,7 @@ app.post('/api/figma/mock-login', (req, res) => {
 });
 
 app.get('/api/figma/status', (req, res) => {
-  const token = req.headers.cookie?.includes('figma_token=');
+  const token = req.headers.cookie?.includes('figma_token=') || req.headers.authorization;
   res.json({ connected: !!token });
 });
 
@@ -41,6 +136,43 @@ app.post('/api/figma/disconnect', (req, res) => {
   res.clearCookie('figma_token');
   res.json({ success: true });
 });
+
+// Designs API Endpoints
+app.get('/api/figma/designs', (req, res) => {
+  const designs = getDesigns();
+  res.json({ success: true, designs });
+});
+
+app.post('/api/figma/designs', (req, res) => {
+  const { name, device, width, height, nodes } = req.body;
+  if (!name || !nodes) {
+    res.status(400).json({ success: false, error: 'Missing name or nodes' });
+    return;
+  }
+
+  const designs = getDesigns();
+  const newDesign = {
+    id: Math.random().toString(36).substring(2, 9),
+    name,
+    device,
+    width,
+    height,
+    nodes,
+    createdAt: new Date().toISOString()
+  };
+  designs.unshift(newDesign);
+  saveDesigns(designs);
+  res.json({ success: true, design: newDesign });
+});
+
+app.delete('/api/figma/designs/:id', (req, res) => {
+  const { id } = req.params;
+  let designs = getDesigns();
+  designs = designs.filter((d: any) => d.id !== id);
+  saveDesigns(designs);
+  res.json({ success: true });
+});
+
 
 /**
  * Serve static files from /browser
