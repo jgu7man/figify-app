@@ -1,11 +1,27 @@
 "use strict";
 // self-contained DOM extraction logic for the Chrome Extension content-script
-function rgbaToHex(rgba) {
-    if (rgba === 'rgba(0, 0, 0, 0)' || rgba === 'transparent')
+function rgbaToHex(colorStr) {
+    if (!colorStr || colorStr === 'transparent' || colorStr === 'rgba(0, 0, 0, 0)')
         return 'transparent';
+    let rgba = colorStr;
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.fillStyle = colorStr;
+            ctx.fillRect(0, 0, 1, 1);
+            const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+            rgba = `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+        }
+    }
+    catch (e) {
+        console.warn("Failed to normalize color using canvas:", colorStr, e);
+    }
     const parts = rgba.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/);
     if (!parts)
-        return rgba;
+        return colorStr;
     const r = parseInt(parts[1], 10).toString(16).padStart(2, '0');
     const g = parseInt(parts[2], 10).toString(16).padStart(2, '0');
     const b = parseInt(parts[3], 10).toString(16).padStart(2, '0');
@@ -33,19 +49,20 @@ function getSmartNodeName(element) {
     return 'Frame';
 }
 function parseRgbaColor(colorStr, doc) {
-    const div = doc.createElement('div');
-    div.style.color = colorStr;
-    doc.body.appendChild(div);
-    const computedColor = doc.defaultView?.getComputedStyle(div).color || 'rgb(0, 0, 0)';
-    doc.body.removeChild(div);
-    const match = computedColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (match) {
-        return {
-            r: parseInt(match[1]) / 255,
-            g: parseInt(match[2]) / 255,
-            b: parseInt(match[3]) / 255,
-            a: match[4] !== undefined ? parseFloat(match[4]) : 1
-        };
+    try {
+        const canvas = doc.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.fillStyle = colorStr;
+            ctx.fillRect(0, 0, 1, 1);
+            const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+            return { r: r / 255, g: g / 255, b: b / 255, a: a / 255 };
+        }
+    }
+    catch (e) {
+        console.warn("Failed to parse color via canvas:", colorStr, e);
     }
     return { r: 0, g: 0, b: 0, a: 1 };
 }
@@ -124,6 +141,72 @@ function parseCssGradient(gradientStr, doc) {
         gradientStops: stops
     };
 }
+function isTextBlock(element, win) {
+    const tagName = element.tagName.toLowerCase();
+    const textTags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a', 'label', 'legend', 'strong', 'em', 'b', 'i', 'small', 'code'];
+    if (!textTags.includes(tagName))
+        return false;
+    const style = win.getComputedStyle(element);
+    const bg = style.backgroundColor;
+    const isBgTransparent = !bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)' || bg === 'rgba(0,0,0,0)';
+    const borderTop = parseFloat(style.borderTopWidth) || 0;
+    const borderRight = parseFloat(style.borderRightWidth) || 0;
+    const borderBottom = parseFloat(style.borderBottomWidth) || 0;
+    const borderLeft = parseFloat(style.borderLeftWidth) || 0;
+    const hasVisualStyles = (!isBgTransparent && bg !== 'rgb(0, 0, 0)' && bg !== 'rgb(255, 255, 255)' && !tagName.includes('a')) ||
+        (parseFloat(style.borderRadius) || 0) > 0 ||
+        (style.boxShadow && style.boxShadow !== 'none') ||
+        borderTop > 0 || borderRight > 0 || borderBottom > 0 || borderLeft > 0;
+    if (hasVisualStyles)
+        return false;
+    const layoutElements = element.querySelectorAll('div, section, article, nav, header, footer, main, aside, ul, ol, li, table, form, input, textarea, button, img, svg');
+    if (layoutElements.length > 0)
+        return false;
+    return (element.textContent || '').trim().length > 0;
+}
+function extractTextBlockData(element, win) {
+    let characters = '';
+    const styleRanges = [];
+    function traverse(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            let text = node.textContent || '';
+            text = text.replace(/[\r\n\t]+/g, ' ');
+            text = text.replace(/ {2,}/g, ' ');
+            if (!text)
+                return;
+            const start = characters.length;
+            characters += text;
+            const end = characters.length;
+            const parentEl = node.parentElement;
+            if (parentEl && parentEl !== element) {
+                const computedStyle = win.getComputedStyle(parentEl);
+                styleRanges.push({
+                    start,
+                    end,
+                    color: rgbaToHex(computedStyle.color),
+                    fontWeight: computedStyle.fontWeight,
+                    textDecoration: computedStyle.textDecorationLine || computedStyle.textDecoration || 'none'
+                });
+            }
+        }
+        else if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node;
+            const tagName = el.tagName.toLowerCase();
+            if (tagName === 'br') {
+                characters += '\n';
+            }
+            else {
+                for (let i = 0; i < el.childNodes.length; i++) {
+                    traverse(el.childNodes[i]);
+                }
+            }
+        }
+    }
+    for (let i = 0; i < element.childNodes.length; i++) {
+        traverse(element.childNodes[i]);
+    }
+    return { characters, styleRanges };
+}
 function extractFigmaSchema(element, win) {
     if (element.nodeType !== Node.ELEMENT_NODE)
         return null;
@@ -136,6 +219,31 @@ function extractFigmaSchema(element, win) {
     const parentRect = element.parentElement?.getBoundingClientRect();
     let x = rect.left - (parentRect ? parentRect.left : 0);
     let y = rect.top - (parentRect ? parentRect.top : 0);
+    // Check if it is a text block first
+    if (isTextBlock(element, win)) {
+        const { characters, styleRanges } = extractTextBlockData(element, win);
+        const opacityVal = style.opacity !== undefined && style.opacity !== '' ? parseFloat(style.opacity) : 1;
+        return {
+            type: 'TEXT',
+            name: getSmartNodeName(element),
+            x: x,
+            y: y,
+            width: rect.width,
+            height: rect.height,
+            characters: characters,
+            styles: {
+                fontSize: parseFloat(style.fontSize) || 16,
+                fontFamily: style.fontFamily,
+                color: rgbaToHex(style.color),
+                fontWeight: style.fontWeight,
+                lineHeight: style.lineHeight,
+                textAlignHorizontal: style.textAlign.includes('center') ? 'CENTER' : style.textAlign.includes('right') ? 'RIGHT' : style.textAlign.includes('justify') ? 'JUSTIFIED' : 'LEFT',
+                layoutPositioning: style.position === 'absolute' || style.position === 'fixed' ? 'ABSOLUTE' : 'RELATIVE',
+                opacity: opacityVal,
+                styleRanges: styleRanges
+            }
+        };
+    }
     const isModalBackdrop = (style.position === 'fixed' || style.position === 'absolute') &&
         (rect.width >= win.innerWidth * 0.85) &&
         (rect.height >= win.innerHeight * 0.85);
@@ -269,6 +377,15 @@ function extractFigmaSchema(element, win) {
             }
         }
     }
+    const opacityVal = style.opacity !== undefined && style.opacity !== '' ? parseFloat(style.opacity) : 1;
+    const filter = style.filter;
+    let blurRadius = 0;
+    if (filter && filter.includes('blur')) {
+        const match = filter.match(/blur\(([\d.]+)px\)/);
+        if (match) {
+            blurRadius = parseFloat(match[1]);
+        }
+    }
     const nodeData = {
         type: isPureText && element.textContent?.trim() && !hasVisualStyles ? 'TEXT' : 'FRAME',
         name: getSmartNodeName(element),
@@ -302,7 +419,9 @@ function extractFigmaSchema(element, win) {
             strokeLeftWeight: borderLeft,
             strokeWeight: borderLeft || borderTop || borderRight || borderBottom,
             strokes: activeStrokeColor !== 'transparent' && activeStrokeColor !== 'rgba(0, 0, 0, 0)' ? [rgbaToHex(activeStrokeColor)] : [],
-            boxShadow: style.boxShadow || 'none'
+            boxShadow: style.boxShadow || 'none',
+            opacity: opacityVal,
+            layerBlur: blurRadius
         }
     };
     if (isModalBackdrop) {
@@ -463,25 +582,27 @@ function extractFigmaSchema(element, win) {
             }
         }
         // Input placeholder text extraction
+        // Input placeholder/value text extraction
         if (element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea') {
             const inputEl = element;
             const placeholder = inputEl.getAttribute('placeholder');
             const value = inputEl.value;
-            if (placeholder && !value) {
+            const textToShow = value || placeholder;
+            if (textToShow) {
                 const paddingLeft = parseFloat(style.paddingLeft) || 12;
                 const paddingTop = parseFloat(style.paddingTop) || 8;
                 children.push({
                     type: 'TEXT',
-                    name: 'placeholder',
-                    characters: placeholder,
+                    name: value ? 'value' : 'placeholder',
+                    characters: textToShow,
                     x: paddingLeft,
                     y: paddingTop,
-                    width: rect.width - paddingLeft * 2,
-                    height: rect.height - paddingTop * 2,
+                    width: Math.max(10, rect.width - paddingLeft * 2),
+                    height: Math.max(10, rect.height - paddingTop * 2),
                     styles: {
                         fontSize: parseFloat(style.fontSize) || 14,
                         fontFamily: style.fontFamily,
-                        color: '#94a3b8',
+                        color: value ? rgbaToHex(style.color) : '#94a3b8',
                         fontWeight: style.fontWeight,
                         lineHeight: style.lineHeight,
                         textAlignHorizontal: 'LEFT'
@@ -532,15 +653,47 @@ async function fetchAndBase64(url) {
 }
 async function resolveNodeImages(node) {
     if (node.imageUrl && !node.imageUrl.startsWith('data:')) {
-        const base64 = await fetchAndBase64(node.imageUrl);
-        if (base64) {
-            node.imageBase64 = base64;
+        if (node.imageUrl.toLowerCase().includes('.svg')) {
+            try {
+                const res = await fetch(node.imageUrl);
+                if (res.ok) {
+                    const svgText = await res.text();
+                    node.type = 'VECTOR';
+                    node.svgContent = svgText;
+                    delete node.imageUrl;
+                }
+            }
+            catch (e) {
+                console.warn("Failed to fetch SVG image code directly:", node.imageUrl, e);
+            }
+        }
+        else {
+            const base64 = await fetchAndBase64(node.imageUrl);
+            if (base64) {
+                node.imageBase64 = base64;
+            }
         }
     }
     if (node.backgroundImageUrl && !node.backgroundImageUrl.startsWith('data:')) {
-        const base64 = await fetchAndBase64(node.backgroundImageUrl);
-        if (base64) {
-            node.backgroundImageBase64 = base64;
+        if (node.backgroundImageUrl.toLowerCase().includes('.svg')) {
+            try {
+                const res = await fetch(node.backgroundImageUrl);
+                if (res.ok) {
+                    const svgText = await res.text();
+                    node.type = 'VECTOR';
+                    node.svgContent = svgText;
+                    delete node.backgroundImageUrl;
+                }
+            }
+            catch (e) {
+                console.warn("Failed to fetch SVG background image directly:", node.backgroundImageUrl, e);
+            }
+        }
+        else {
+            const base64 = await fetchAndBase64(node.backgroundImageUrl);
+            if (base64) {
+                node.backgroundImageBase64 = base64;
+            }
         }
     }
     if (node.children && node.children.length > 0) {

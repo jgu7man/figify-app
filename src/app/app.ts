@@ -561,6 +561,27 @@ export class App implements OnInit {
     navigator.clipboard.writeText(this.jsonOutput());
   }
 
+  private isTextBlock(element: HTMLElement): boolean {
+    const tagName = element.tagName.toLowerCase();
+    const textTags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a', 'label', 'legend', 'strong', 'em', 'b', 'i', 'small', 'code'];
+    if (!textTags.includes(tagName)) return false;
+
+    const layoutElements = element.querySelectorAll('div, section, article, nav, header, footer, main, aside, ul, ol, li, table, form, input, textarea, button, img, svg');
+    if (layoutElements.length > 0) return false;
+
+    return (element.textContent || '').trim().length > 0;
+  }
+
+  private getElementText(element: HTMLElement, doc: Document): string {
+    if (element.childNodes.length === 1 && element.firstChild?.nodeType === Node.TEXT_NODE) {
+      return element.textContent?.trim() || '';
+    }
+    const clone = element.cloneNode(true) as HTMLElement;
+    const brs = clone.querySelectorAll('br');
+    brs.forEach(br => br.parentNode?.replaceChild(doc.createTextNode('\n'), br));
+    return clone.textContent?.trim().replace(/[ \t]+/g, ' ') || '';
+  }
+
   private extractFigmaSchema(element: HTMLElement, win: Window): any {
     if (element.nodeType !== Node.ELEMENT_NODE) return null;
     
@@ -575,6 +596,30 @@ export class App implements OnInit {
     const parentRect = element.parentElement?.getBoundingClientRect();
     let x = rect.left - (parentRect ? parentRect.left : 0);
     let y = rect.top - (parentRect ? parentRect.top : 0);
+
+    // Check if it is a text block first
+    if (this.isTextBlock(element)) {
+      const opacityVal = style.opacity !== undefined && style.opacity !== '' ? parseFloat(style.opacity) : 1;
+      return {
+        type: 'TEXT',
+        name: this.getSmartNodeName(element),
+        x: x,
+        y: y,
+        width: rect.width,
+        height: rect.height,
+        characters: this.getElementText(element, win.document),
+        styles: {
+          fontSize: parseFloat(style.fontSize) || 16,
+          fontFamily: style.fontFamily,
+          color: this.rgbaToHex(style.color),
+          fontWeight: style.fontWeight,
+          lineHeight: style.lineHeight,
+          textAlignHorizontal: style.textAlign.includes('center') ? 'CENTER' : style.textAlign.includes('right') ? 'RIGHT' : style.textAlign.includes('justify') ? 'JUSTIFIED' : 'LEFT',
+          layoutPositioning: style.position === 'absolute' || style.position === 'fixed' ? 'ABSOLUTE' : 'RELATIVE',
+          opacity: opacityVal
+        }
+      };
+    }
 
     // Check if this element is a screen-sized overlay / modal backdrop based on viewport dimension ratios
     const isModalBackdrop = (style.position === 'fixed' || style.position === 'absolute') && 
@@ -727,6 +772,16 @@ export class App implements OnInit {
       }
     }
 
+    const opacityVal = style.opacity !== undefined && style.opacity !== '' ? parseFloat(style.opacity) : 1;
+    const filter = style.filter;
+    let blurRadius = 0;
+    if (filter && filter.includes('blur')) {
+      const match = filter.match(/blur\(([\d.]+)px\)/);
+      if (match) {
+        blurRadius = parseFloat(match[1]);
+      }
+    }
+
     const nodeData: any = {
       type: isPureText && element.textContent?.trim() && !hasVisualStyles ? 'TEXT' : 'FRAME',
       name: this.getSmartNodeName(element),
@@ -760,7 +815,9 @@ export class App implements OnInit {
         strokeLeftWeight: borderLeft,
         strokeWeight: borderLeft || borderTop || borderRight || borderBottom,
         strokes: activeStrokeColor !== 'transparent' && activeStrokeColor !== 'rgba(0, 0, 0, 0)' ? [this.rgbaToHex(activeStrokeColor)] : [],
-        boxShadow: style.boxShadow || 'none'
+        boxShadow: style.boxShadow || 'none',
+        opacity: opacityVal,
+        layerBlur: blurRadius
       }
     };
 
@@ -935,28 +992,29 @@ export class App implements OnInit {
         }
       }
 
-      // If the element is an input or textarea with placeholder text, extract it as a virtual text child node
+      // If the element is an input or textarea with placeholder text or value, extract it as a virtual text child node
       if (element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea') {
         const inputEl = element as HTMLInputElement;
         const placeholder = inputEl.getAttribute('placeholder');
         const value = inputEl.value;
+        const textToShow = value || placeholder;
         
-        if (placeholder && !value) {
+        if (textToShow) {
           const paddingLeft = parseFloat(style.paddingLeft) || 12;
           const paddingTop = parseFloat(style.paddingTop) || 8;
           
           children.push({
             type: 'TEXT',
-            name: 'placeholder',
-            characters: placeholder,
+            name: value ? 'value' : 'placeholder',
+            characters: textToShow,
             x: paddingLeft,
             y: paddingTop,
-            width: rect.width - paddingLeft - (parseFloat(style.paddingRight) || 12),
-            height: rect.height - paddingTop - (parseFloat(style.paddingBottom) || 8),
+            width: Math.max(10, rect.width - paddingLeft - (parseFloat(style.paddingRight) || 12)),
+            height: Math.max(10, rect.height - paddingTop - (parseFloat(style.paddingBottom) || 8)),
             styles: {
               fontSize: parseFloat(style.fontSize) || 14,
               fontFamily: style.fontFamily,
-              color: '#94a3b8',
+              color: value ? this.rgbaToHex(style.color) : '#94a3b8',
               fontWeight: '400',
               lineHeight: style.lineHeight,
               textAlignHorizontal: 'LEFT'
@@ -1043,10 +1101,27 @@ export class App implements OnInit {
     return nodeData;
   }
 
-  private rgbaToHex(rgba: string): string {
-    if (rgba === 'rgba(0, 0, 0, 0)' || rgba === 'transparent') return 'transparent';
+  private rgbaToHex(colorStr: string): string {
+    if (!colorStr || colorStr === 'transparent' || colorStr === 'rgba(0, 0, 0, 0)') return 'transparent';
+    
+    let rgba = colorStr;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = colorStr;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        rgba = `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+      }
+    } catch (e) {
+      console.warn("Failed to normalize color using canvas:", colorStr, e);
+    }
+
     const parts = rgba.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/);
-    if (!parts) return rgba;
+    if (!parts) return colorStr;
     
     const r = parseInt(parts[1], 10).toString(16).padStart(2, '0');
     const g = parseInt(parts[2], 10).toString(16).padStart(2, '0');
@@ -1088,20 +1163,19 @@ export class App implements OnInit {
   }
 
   private parseRgbaColor(colorStr: string, doc: Document): { r: number, g: number, b: number, a: number } {
-    const div = doc.createElement('div');
-    div.style.color = colorStr;
-    doc.body.appendChild(div);
-    const computedColor = doc.defaultView?.getComputedStyle(div).color || 'rgb(0, 0, 0)';
-    doc.body.removeChild(div);
-    
-    const match = computedColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (match) {
-      return {
-        r: parseInt(match[1]) / 255,
-        g: parseInt(match[2]) / 255,
-        b: parseInt(match[3]) / 255,
-        a: match[4] !== undefined ? parseFloat(match[4]) : 1
-      };
+    try {
+      const canvas = doc.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = colorStr;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        return { r: r / 255, g: g / 255, b: b / 255, a: a / 255 };
+      }
+    } catch (e) {
+      console.warn("Failed to parse color via canvas:", colorStr, e);
     }
     return { r: 0, g: 0, b: 0, a: 1 };
   }

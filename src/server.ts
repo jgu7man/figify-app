@@ -183,15 +183,53 @@ async function fetchAndBase64(url: string, reqHeadersHost: string, isHttps: bool
 
 async function resolveNodeImages(node: any, reqHeadersHost: string, isHttps: boolean) {
   if (node.imageUrl) {
-    const base64 = await fetchAndBase64(node.imageUrl, reqHeadersHost, isHttps);
-    if (base64) {
-      node.imageBase64 = base64;
+    if (node.imageUrl.toLowerCase().includes('.svg')) {
+      try {
+        let targetUrl = node.imageUrl;
+        if (node.imageUrl.startsWith('/')) {
+          const protocol = isHttps ? 'https' : 'http';
+          targetUrl = `${protocol}://${reqHeadersHost}${node.imageUrl}`;
+        }
+        const response = await fetch(targetUrl);
+        if (response.ok) {
+          const svgText = await response.text();
+          node.type = 'VECTOR';
+          node.svgContent = svgText;
+          delete node.imageUrl;
+        }
+      } catch (e) {
+        console.warn("Failed to fetch SVG image code directly in server:", node.imageUrl, e);
+      }
+    } else {
+      const base64 = await fetchAndBase64(node.imageUrl, reqHeadersHost, isHttps);
+      if (base64) {
+        node.imageBase64 = base64;
+      }
     }
   }
   if (node.backgroundImageUrl) {
-    const base64 = await fetchAndBase64(node.backgroundImageUrl, reqHeadersHost, isHttps);
-    if (base64) {
-      node.backgroundImageBase64 = base64;
+    if (node.backgroundImageUrl.toLowerCase().includes('.svg')) {
+      try {
+        let targetUrl = node.backgroundImageUrl;
+        if (node.backgroundImageUrl.startsWith('/')) {
+          const protocol = isHttps ? 'https' : 'http';
+          targetUrl = `${protocol}://${reqHeadersHost}${node.backgroundImageUrl}`;
+        }
+        const response = await fetch(targetUrl);
+        if (response.ok) {
+          const svgText = await response.text();
+          node.type = 'VECTOR';
+          node.svgContent = svgText;
+          delete node.backgroundImageUrl;
+        }
+      } catch (e) {
+        console.warn("Failed to fetch SVG background image directly in server:", node.backgroundImageUrl, e);
+      }
+    } else {
+      const base64 = await fetchAndBase64(node.backgroundImageUrl, reqHeadersHost, isHttps);
+      if (base64) {
+        node.backgroundImageBase64 = base64;
+      }
     }
   }
   if (node.children && node.children.length > 0) {

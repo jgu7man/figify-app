@@ -303,6 +303,32 @@ async function loadFontForNode(fontFamily: string, fontWeight: string): Promise<
   }
 }
 
+function applyNodeOpacityAndEffects(figmaNode: any, node: any) {
+  if (!node || !node.styles) return;
+
+  // Apply general opacity
+  if (node.styles.opacity !== undefined) {
+    figmaNode.opacity = node.styles.opacity;
+  }
+
+  // Compile effects (box shadow + layer blur)
+  const effects: any[] = [];
+  if (node.styles.boxShadow && node.styles.boxShadow !== 'none') {
+    effects.push(...parseBoxShadows(node.styles.boxShadow));
+  }
+  if (node.styles.layerBlur && node.styles.layerBlur > 0) {
+    effects.push({
+      type: 'LAYER_BLUR',
+      visible: true,
+      radius: node.styles.layerBlur
+    });
+  }
+
+  if (effects.length > 0) {
+    figmaNode.effects = effects;
+  }
+}
+
 /**
  * Recursively creates layers in Figma based on DOM layout mapping
  */
@@ -316,6 +342,7 @@ async function createFigmaNode(node: any, parent: any) {
       vector.x = node.x;
       vector.y = node.y;
       vector.resize(Math.max(0.01, node.width || 0.01), Math.max(0.01, node.height || 0.01));
+      applyNodeOpacityAndEffects(vector, node);
       parent.appendChild(vector);
       applyChildLayoutConstraints(vector, node, parent);
     } catch (e) {
@@ -324,12 +351,24 @@ async function createFigmaNode(node: any, parent: any) {
   } else if (node.type === 'TEXT') {
     const figmaNode = figma.createText();
     
-    // Load font before applying characters
-    const font = await loadFontForNode(
+    // Load default font and range fonts
+    const fontPromises: Promise<any>[] = [];
+    fontPromises.push(loadFontForNode(
       node.styles?.fontFamily || 'Inter', 
       node.styles?.fontWeight || '400'
-    );
-    figmaNode.fontName = font;
+    ));
+    
+    if (node.styles?.styleRanges) {
+      for (const range of node.styles.styleRanges) {
+        fontPromises.push(loadFontForNode(
+          node.styles?.fontFamily || 'Inter', 
+          range.fontWeight || '400'
+        ));
+      }
+    }
+    
+    const fonts = await Promise.all(fontPromises);
+    figmaNode.fontName = fonts[0];
     figmaNode.characters = node.characters || '';
     
     if (node.styles?.fontSize) {
@@ -350,17 +389,53 @@ async function createFigmaNode(node: any, parent: any) {
       figmaNode.fills = [];
     }
 
+    // Apply mixed style ranges (e.g. blue links inside a paragraph)
+    if (node.styles?.styleRanges) {
+      for (const range of node.styles.styleRanges) {
+        const start = Math.min(range.start, figmaNode.characters.length);
+        const end = Math.min(range.end, figmaNode.characters.length);
+        if (start >= end) continue;
+        
+        if (range.color) {
+          const rangeColor = parseHexColor(range.color);
+          if (rangeColor.a > 0) {
+            figmaNode.setRangeFills(start, end, [{ type: 'SOLID', color: { r: rangeColor.r, g: rangeColor.g, b: rangeColor.b } }]);
+          }
+        }
+        
+        if (range.fontWeight) {
+          const rangeFont = await loadFontForNode(
+            node.styles?.fontFamily || 'Inter',
+            range.fontWeight
+          );
+          figmaNode.setRangeFontName(start, end, rangeFont);
+        }
+        
+        if (range.textDecoration && range.textDecoration !== 'none') {
+          if (range.textDecoration.includes('underline')) {
+            figmaNode.setRangeTextDecoration(start, end, 'UNDERLINE');
+          } else if (range.textDecoration.includes('line-through')) {
+            figmaNode.setRangeTextDecoration(start, end, 'STRIKETHROUGH');
+          }
+        }
+      }
+    }
+
     if (node.styles?.textAlignHorizontal) {
       figmaNode.textAlignHorizontal = node.styles.textAlignHorizontal;
     }
 
     figmaNode.x = node.x;
     figmaNode.y = node.y;
+    applyNodeOpacityAndEffects(figmaNode, node);
     
-    // If it's a single line of text, use Auto-Width to prevent wrapping due to font metric differences
-    if (node.height && node.styles?.fontSize && node.height < node.styles.fontSize * 1.8) {
+    // If it's a single line of text and NOT centered/right-aligned, use Auto-Width.
+    // For aligned text, keep the box width so centering works perfectly.
+    const isAligned = node.styles?.textAlignHorizontal === 'CENTER' || node.styles?.textAlignHorizontal === 'RIGHT';
+    if (node.height && node.styles?.fontSize && node.height < node.styles.fontSize * 1.8 && !isAligned) {
       figmaNode.textAutoResize = "WIDTH_AND_HEIGHT";
     } else {
+      figmaNode.textAutoResize = "HEIGHT";
       figmaNode.resize(Math.max(0.01, node.width || 0.01), Math.max(0.01, node.height || 0.01));
     }
     
@@ -376,6 +451,7 @@ async function createFigmaNode(node: any, parent: any) {
     // Always apply absolute coordinates to match the browser's bounding rect calculations
     figmaNode.x = node.x;
     figmaNode.y = node.y;
+    applyNodeOpacityAndEffects(figmaNode, node);
 
     let finalFills: any[] = [];
     if (node.imageBase64 || node.backgroundImageBase64) {
@@ -416,14 +492,6 @@ async function createFigmaNode(node: any, parent: any) {
         } else {
           figmaNode.strokeWeight = node.styles.strokeWeight;
         }
-      }
-    }
-
-    // Shadows (Effects)
-    if (node.styles?.boxShadow && node.styles.boxShadow !== 'none') {
-      const effects = parseBoxShadows(node.styles.boxShadow);
-      if (effects.length > 0) {
-        figmaNode.effects = effects;
       }
     }
 
