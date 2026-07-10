@@ -14,10 +14,11 @@ The project utilizes a unified Angular SSR development server. This single comma
    npm install
    ```
 2. **Configure Environment:**
-   Create or verify your `.env` file matches the configurations in `.env.example`:
+   Create or verify your `.env` file matches the configurations in `.env.example`. Make sure to set the OAuth client credentials:
    ```env
    GEMINI_API_KEY="your_api_key"
-   APP_URL="http://localhost:3000"
+   FIGMA_CLIENT_ID="your_figma_client_id"
+   FIGMA_CLIENT_SECRET="your_figma_client_secret"
    ```
 3. **Start Server:**
    ```bash
@@ -27,7 +28,20 @@ The project utilizes a unified Angular SSR development server. This single comma
 
 ---
 
-## 2. Building & Loading the Figma Plugin
+## 2. Configuring Figma OAuth
+
+To enable user authentication with Figma:
+
+1. Go to the [Figma Developer Portal](https://www.figma.com/developers/apps) and log in.
+2. Click **"Register a new app"** and fill out the details:
+   * **App Name:** `Figify` (or any custom name)
+   * **Redirect URI:** Add `http://localhost:3000/api/figma/callback` (for local development).
+3. Once registered, copy the **Client ID** and **Client Secret**.
+4. Save them in your local `.env` file under `FIGMA_CLIENT_ID` and `FIGMA_CLIENT_SECRET`.
+
+---
+
+## 3. Building & Loading the Figma Plugin
 
 The Figma plugin runs locally inside Figma using the manifest configuration.
 
@@ -47,7 +61,7 @@ The Figma plugin runs locally inside Figma using the manifest configuration.
 
 ---
 
-## 3. Current Implementation State
+## 4. Current Implementation State
 
 The compiler supports the following features today:
 
