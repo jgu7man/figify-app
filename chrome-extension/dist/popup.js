@@ -1,12 +1,26 @@
 "use strict";
+// On popup load, restore saved Backend URL
+document.addEventListener('DOMContentLoaded', async () => {
+    const urlInput = document.getElementById('backend-url');
+    if (urlInput) {
+        const data = await chrome.storage.local.get('backendUrl');
+        if (data.backendUrl) {
+            urlInput.value = data.backendUrl;
+        }
+    }
+});
 document.getElementById('extract-btn')?.addEventListener('click', async () => {
     const btn = document.getElementById('extract-btn');
     const statusEl = document.getElementById('status');
+    const urlInput = document.getElementById('backend-url');
+    const backendUrl = urlInput ? urlInput.value.trim() : 'http://localhost:3000';
     if (btn)
         btn.disabled = true;
     statusEl.textContent = 'Extracting DOM...';
     statusEl.className = 'status-text';
     try {
+        // Save to storage
+        await chrome.storage.local.set({ backendUrl });
         // 1. Get active tab
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab || !tab.id) {
@@ -23,9 +37,9 @@ document.getElementById('extract-btn')?.addEventListener('click', async () => {
         }
         const payload = results[0].result;
         payload.name = tab.title || 'Extracted Tab';
-        // 3. Sync to local backend server
-        statusEl.textContent = 'Syncing to local server...';
-        const response = await fetch('http://localhost:3000/api/figma/designs', {
+        // 3. Sync to backend server
+        statusEl.textContent = `Syncing to ${backendUrl}...`;
+        const response = await fetch(`${backendUrl}/api/figma/designs`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

@@ -133,10 +133,15 @@
         </svg>
       </button>
       <div id="status" class="status-text">Ready to sync</div>
+      
+      <div style="margin-top: 16px; border-top: 1px solid var(--glass-border); padding-top: 14px; text-align: left; display: flex; flex-direction: column; gap: 6px;">
+        <label for="backend-url" style="color: var(--text-muted); font-size: 11px; font-weight: 600;">Server URL:</label>
+        <input id="backend-url" type="text" value="http://localhost:3000" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 12px; outline: none; width: 100%; box-sizing: border-box; transition: border-color 0.2s;" />
+      </div>
     </div>
 
     <div class="info-footer">
-      Ensure your local Figify app is running on port 3000
+      Enter the backend URL (local or deployed) to sync designs.
     </div>
   </div>
   <script src="dist/popup.js"></script>
