@@ -4,15 +4,24 @@ declare const __html__: any;
 // Initialize the Figma Plugin UI
 figma.showUI(__html__, { width: 380, height: 440 });
 
-// Fetch stored token and pass to UI on load
-figma.clientStorage.getAsync('figma_token').then((token: any) => {
-  figma.ui.postMessage({ type: 'init-auth', token: token || '' });
+// Fetch stored token and backend URL and pass to UI on load
+Promise.all([
+  figma.clientStorage.getAsync('figma_token'),
+  figma.clientStorage.getAsync('figma_backend_url')
+]).then(([token, backendUrl]) => {
+  figma.ui.postMessage({
+    type: 'init-auth',
+    token: token || '',
+    backendUrl: backendUrl || ''
+  });
 });
 
 // Listener for messages from the UI thread
 figma.ui.onmessage = async (msg: any) => {
   if (msg.type === 'save-token') {
     await figma.clientStorage.setAsync('figma_token', msg.token);
+  } else if (msg.type === 'save-backend-url') {
+    await figma.clientStorage.setAsync('figma_backend_url', msg.backendUrl);
   } else if (msg.type === 'import-design') {
     const { design } = msg;
     if (!design) return;

@@ -29,7 +29,10 @@ interface Device {
             <div class="w-8 h-8 bg-zinc-100 text-zinc-900 rounded flex items-center justify-center">
               <mat-icon class="text-[18px] w-[18px] h-[18px]">transform</mat-icon>
             </div>
-            <h1 class="text-xl font-semibold tracking-tight">Figify</h1>
+            <div class="flex items-center gap-2">
+              <h1 class="text-xl font-semibold tracking-tight">Figify</h1>
+              <span class="px-2 py-0.5 text-[9px] font-semibold bg-zinc-800 text-zinc-400 rounded-full uppercase tracking-wider">Beta</span>
+            </div>
           </div>
         </div>
 
@@ -247,6 +250,11 @@ interface Device {
               </ol>
             </div>
           </div>
+        </div>
+
+        <!-- Footer / Credits -->
+        <div class="mt-auto p-6 border-t border-zinc-805 bg-zinc-900/20 text-center text-xs text-zinc-500 flex-shrink-0">
+          Desarrollado por <a href="https://marxadigital.com" target="_blank" class="text-zinc-400 hover:text-zinc-200 transition-colors font-medium">marxadigital.com</a>
         </div>
       </aside>
 

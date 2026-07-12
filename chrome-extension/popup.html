@@ -123,6 +123,10 @@
     <div class="header">
       <h1 class="logo-text">Figify Extractor</h1>
       <p class="subtitle">Extract live web layouts directly to Figma</p>
+      <div id="connection-badge" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; margin-top: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: 0.5px;">
+        <span id="connection-dot" style="width: 7px; height: 7px; border-radius: 50%; background-color: #e2e8f0; transition: all 0.3s;"></span>
+        <span id="connection-text" style="color: var(--text-muted); transition: all 0.3s;">Checking status...</span>
+      </div>
     </div>
 
     <div class="card">
@@ -133,10 +137,15 @@
         </svg>
       </button>
       <div id="status" class="status-text">Ready to sync</div>
+      
+      <div id="backend-url-container" style="margin-top: 16px; border-top: 1px solid var(--glass-border); padding-top: 14px; text-align: left; display: flex; flex-direction: column; gap: 6px; transition: all 0.3s;">
+        <label for="backend-url" style="color: var(--text-muted); font-size: 11px; font-weight: 600;">Server URL:</label>
+        <input id="backend-url" type="text" value="https://figify-app--figify-app.us-central1.hosted.app" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 12px; outline: none; width: 100%; box-sizing: border-box; transition: border-color 0.2s;" />
+      </div>
     </div>
 
     <div class="info-footer">
-      Ensure your local Figify app is running on port 3000
+      Enter the backend URL (local or deployed) to sync designs.
     </div>
   </div>
   <script src="dist/popup.js"></script>
