@@ -7,7 +7,7 @@
     "dev": "cross-env ng serve --port=3000 --host=0.0.0.0 --allowed-hosts=true ${DISABLE_HMR:+--live-reload=false}",
     "build": "ng build",
     "build:extension": "tsc -p chrome-extension/tsconfig.json",
-    "build:extension:zip": "npm run build:extension && cd chrome-extension && zip -FS -r ../figify-chrome-extension.zip manifest.json popup.html dist",
+    "build:extension:zip": "npm run build:extension && cd chrome-extension && zip -FS -r ../figify-chrome-extension.zip manifest.json popup.html dist icons",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "lint": "ng lint",
