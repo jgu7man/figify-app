@@ -237,6 +237,17 @@
         Connect Account
       </button>
 
+      <!-- Backend URL Configuration -->
+      <div style="width: 100%; border-top: 1px solid var(--card-border); padding-top: 12px; margin-bottom: 12px; text-align: left;">
+        <label for="backend-url" style="color: var(--text-muted); font-size: 11px; display: block; margin-bottom: 6px;">Backend URL:</label>
+        <div style="display: flex; gap: 6px; width: 100%;">
+          <input id="backend-url" type="text" placeholder="https://figify-app.web.app" style="flex: 1; background: #000; border: 1px solid var(--card-border); border-radius: 6px; padding: 6px 10px; color: #fff; font-size: 11px; outline: none; box-sizing: border-box;" />
+          <button class="btn-secondary" style="padding: 6px 12px; font-size: 11px; border-radius: 6px;" onclick="saveBackendUrlInput()">
+            Save
+          </button>
+        </div>
+      </div>
+
       <!-- Manual token entry for Figma Desktop -->
       <div style="width: 100%; border-top: 1px solid var(--card-border); padding-top: 12px; margin-bottom: 12px; text-align: left;">
         <label for="manual-token" style="color: var(--text-muted); font-size: 11px; display: block; margin-bottom: 6px;">Or paste token (for Figma Desktop):</label>
@@ -260,6 +271,10 @@
         <button class="btn-danger" onclick="disconnect()">Disconnect</button>
       </div>
 
+      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 16px; margin-top: -8px; word-break: break-all; border-bottom: 1px solid var(--card-border); padding-bottom: 8px;">
+        Backend: <span id="connected-backend-url" style="color: var(--text); font-weight: 500;">https://figify-app.web.app</span>
+      </div>
+
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
         <span style="font-weight: 600; color: var(--text-muted);">Saved Designs</span>
         <button class="btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="fetchDesigns()">
@@ -277,7 +292,7 @@
 
   <script>
     let apiToken = '';
-    let BACKEND_URL = 'http://localhost:4000';
+    let BACKEND_URL = 'https://figify-app.web.app'; // Default fallback
 
     // Auto-detect active local server port on startup
     async function detectBackendPort() {
@@ -293,6 +308,7 @@
           
           if (response.ok) {
             BACKEND_URL = url;
+            document.getElementById('backend-url').value = BACKEND_URL;
             console.log("Successfully connected to backend at:", BACKEND_URL);
             break;
           }
@@ -306,14 +322,20 @@
       }
     }
 
-    detectBackendPort();
-
     // Handle messages from Figma main thread
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
 
       if (msg.type === 'init-auth') {
+        if (msg.backendUrl) {
+          BACKEND_URL = msg.backendUrl;
+          document.getElementById('backend-url').value = BACKEND_URL;
+        } else {
+          // Probe local ports on startup if no saved URL is found
+          detectBackendPort();
+        }
+
         if (msg.token) {
           apiToken = msg.token;
           showMainScreen();
@@ -340,7 +362,26 @@
     function showMainScreen() {
       document.getElementById('auth-screen').style.display = 'none';
       document.getElementById('main-screen').style.display = 'flex';
+      const connectedEl = document.getElementById('connected-backend-url');
+      if (connectedEl) {
+        connectedEl.textContent = BACKEND_URL;
+      }
       fetchDesigns();
+    }
+
+    function saveBackendUrlInput() {
+      const urlInput = document.getElementById('backend-url');
+      const url = urlInput ? urlInput.value.trim() : '';
+      if (url) {
+        BACKEND_URL = url;
+        parent.postMessage({ pluginMessage: { type: 'save-backend-url', backendUrl: BACKEND_URL } }, '*');
+        alert("Backend URL saved: " + BACKEND_URL);
+        if (apiToken) {
+          fetchDesigns();
+        }
+      } else {
+        alert("Please enter a valid URL.");
+      }
     }
 
     function startOAuth() {
@@ -369,7 +410,7 @@
         }
       } catch (err) {
         console.error("Mock login failed:", err);
-        alert("Mock login failed. Make sure server is running on port 4000");
+        alert("Mock login failed. Make sure server is running at " + BACKEND_URL);
       }
     }
 
@@ -419,7 +460,7 @@
         }
       } catch (err) {
         console.error("Fetch error:", err);
-        listEl.innerHTML = '<div class="empty-state" style="color:var(--danger);">Failed to load designs. Ensure backend server is running on port 4000.</div>';
+        listEl.innerHTML = '<div class="empty-state" style="color:var(--danger);">Failed to load designs. Ensure backend server is running at ' + BACKEND_URL + '.</div>';
       }
     }
 

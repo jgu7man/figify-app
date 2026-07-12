@@ -8,13 +8,18 @@ runConfig:
 
 # Environment variables
 env:
-  - variable: GEMINI_API_KEY
-    secret: geminiApiKeySecret
+  # Required to connect the OAuth2 authentication with Figma
   - variable: FIGMA_CLIENT_ID
     secret: figmaClientIdSecret
+  # Required to connect the OAuth2 authentication with Figma
   - variable: FIGMA_CLIENT_SECRET
     secret: figmaClientSecretSecret
+  # The URL of the app, used to generate OAuth2 callback URLs.
   - variable: APP_URL
     value: "https://figify-app.web.app"
+
+  # Required by the backend when using the Figma API to exchange a short-lived code for an access token. It uses the backend's App URL to construct the callback URL.
   - variable: GEMINI_API_KEY_SECRET
+    secret: geminiApiKeySecret
+  - variable: GEMINI_API_KEY
     secret: geminiApiKeySecret
